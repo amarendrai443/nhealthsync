@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Activity,
   Stethoscope,
@@ -43,6 +43,8 @@ import {
   Upload
 } from 'lucide-react';
 import { UserAccount, ConfirmedBooking } from '../types/serviceBooking';
+import { AdBannerItem, getActiveBanners } from '../utils/advertisingStorage';
+import { navHistory } from '../utils/navigationHistory';
 import { EXTRACTED_SERVICES } from '../data/servicesData';
 import { generateVitalLensPDF } from '../utils/vitalReportGenerator';
 import { generateInvoicePDF, InvoiceData } from '../utils/invoicePdfGenerator';
@@ -198,7 +200,24 @@ type DashboardTab =
   | 'privacy'
   | 'profile';
 
-const PROMO_SLIDES = [
+export interface PromoSlideItem {
+  id: number;
+  tag: string;
+  tagColor: string;
+  title: string;
+  desc: string;
+  cta: string;
+  badge: string;
+  gradient: string;
+  serviceTarget: string;
+  isCustom?: boolean;
+  customImage?: string;
+  scale?: number;
+  imageFit?: 'cover' | 'contain';
+  heightMode?: string;
+}
+
+const PROMO_SLIDES: PromoSlideItem[] = [
   {
     id: 1,
     tag: 'EXCLUSIVE OFFER',
@@ -245,6 +264,191 @@ const PROMO_SLIDES = [
   },
 ];
 
+export interface ResponsiveBannerCarouselProps {
+  sectionKey: 'section1' | 'section2';
+  sectionLabel: string;
+  banners: AdBannerItem[];
+  onServiceClick: (serviceTarget: string) => void;
+  accentBadge?: string;
+}
+
+export const ResponsiveBannerCarousel: React.FC<ResponsiveBannerCarouselProps> = ({
+  sectionKey,
+  sectionLabel,
+  banners,
+  onServiceClick,
+  accentBadge,
+}) => {
+  const [currentIdx, setCurrentIdx] = useState(0);
+  const [isHovered, setIsHovered] = useState(false);
+  const [touchStartX, setTouchStartX] = useState<number | null>(null);
+
+  useEffect(() => {
+    setCurrentIdx((prev) => (banners.length > 0 && prev >= banners.length ? 0 : prev));
+  }, [banners.length]);
+
+  // Smooth auto-play carousel cycle (3-6s per slide), pauses on hover
+  useEffect(() => {
+    if (banners.length <= 1 || isHovered) return;
+    const intervalSec = banners[currentIdx]?.autoPlayInterval || 4.5;
+    const timer = setInterval(() => {
+      setCurrentIdx((prev) => (prev + 1) % banners.length);
+    }, intervalSec * 1000);
+    return () => clearInterval(timer);
+  }, [banners.length, currentIdx, isHovered]);
+
+  if (banners.length === 0) return null;
+
+  return (
+    <div className="space-y-1.5 w-full">
+      <div className="flex items-center justify-between px-1">
+        <span className="text-[10px] sm:text-xs font-black uppercase tracking-wider text-cyan-400 flex items-center gap-1.5">
+          <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
+          {sectionLabel}
+        </span>
+        <div className="flex items-center gap-2">
+          {accentBadge && (
+            <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-white/10 text-cyan-200 border border-white/10 hidden sm:inline">
+              {accentBadge}
+            </span>
+          )}
+          {banners.length > 1 && (
+            <span className="text-[10px] text-slate-400 font-semibold font-mono">
+              {currentIdx + 1}/{banners.length}
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Strict 4:1 Responsive Banner Frame across Desktop, Tablet & Mobile */}
+      <section
+        onMouseEnter={() => setIsHovered(true)}
+        onMouseLeave={() => setIsHovered(false)}
+        onTouchStart={(e) => setTouchStartX(e.touches[0].clientX)}
+        onTouchEnd={(e) => {
+          if (touchStartX === null) return;
+          const diff = touchStartX - e.changedTouches[0].clientX;
+          if (diff > 40) {
+            setCurrentIdx((prev) => (prev + 1) % banners.length);
+          } else if (diff < -40) {
+            setCurrentIdx((prev) => (prev - 1 + banners.length) % banners.length);
+          }
+          setTouchStartX(null);
+        }}
+        style={{ aspectRatio: '4 / 1', width: '100%' }}
+        className="relative w-full aspect-[4/1] overflow-hidden rounded-xl sm:rounded-2xl md:rounded-3xl border border-cyan-500/30 shadow-xl bg-[#001424] select-none"
+      >
+        {banners.map((banner, idx) => {
+          const isCurrent = idx === currentIdx;
+          return (
+            <div
+              key={banner.id}
+              aria-hidden={!isCurrent}
+              className={`absolute inset-0 transition-opacity duration-700 ease-in-out ${
+                isCurrent ? 'opacity-100 z-10 pointer-events-auto' : 'opacity-0 z-0 pointer-events-none'
+              }`}
+            >
+              {/* Background Banner Image */}
+              {banner.imageUrl ? (
+                <div className="absolute inset-0 overflow-hidden">
+                  <img
+                    src={banner.imageUrl}
+                    alt={banner.title}
+                    style={{
+                      transform: `scale(${(banner.scale || 100) / 100})`,
+                      transformOrigin: 'center center',
+                    }}
+                    className={`w-full h-full ${
+                      banner.imageFit === 'contain' ? 'object-contain' : 'object-cover'
+                    }`}
+                  />
+                  <div className="absolute inset-0 bg-gradient-to-r from-[#001424]/95 via-[#001424]/75 to-[#001424]/30 pointer-events-none" />
+                </div>
+              ) : (
+                <div className="absolute inset-0 bg-gradient-to-r from-[#00172d] to-[#002b49]" />
+              )}
+
+              {/* Responsive Content Layer scaled to 4:1 across all devices */}
+              <div className="relative z-10 h-full p-2.5 sm:p-5 md:p-6 lg:p-7 flex flex-col justify-between max-w-3xl">
+                <div className="space-y-0.5 sm:space-y-1.5 md:space-y-2">
+                  <div className="flex items-center gap-1.5 sm:gap-2">
+                    <span className="text-[8px] sm:text-[10px] font-black px-1.5 sm:px-2.5 py-0.2 sm:py-0.5 rounded-full border bg-cyan-500/20 text-cyan-300 border-cyan-500/40 uppercase tracking-wider backdrop-blur-xs">
+                      {banner.tag || 'FEATURED'}
+                    </span>
+                    <span className="text-[9px] sm:text-xs font-semibold text-cyan-200 hidden md:inline">
+                      Nhealth Verified Campaign
+                    </span>
+                  </div>
+                  <h2 className="text-xs sm:text-lg md:text-xl lg:text-2xl font-black text-white tracking-tight drop-shadow-md line-clamp-1 sm:line-clamp-2">
+                    {banner.title}
+                  </h2>
+                  <p className="text-[10px] sm:text-xs md:text-sm text-slate-200 drop-shadow line-clamp-1 sm:line-clamp-2 max-w-xl leading-relaxed hidden xs:block">
+                    {banner.subtitle}
+                  </p>
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <button
+                    type="button"
+                    onClick={() => onServiceClick(banner.ctaLink)}
+                    className="px-2.5 py-1 sm:px-4 sm:py-1.5 md:px-5 md:py-2 rounded-lg sm:rounded-xl bg-gradient-to-r from-cyan-400 to-teal-400 hover:from-cyan-300 hover:to-teal-300 text-[#001424] font-black text-[10px] sm:text-xs md:text-sm shadow-xl shadow-cyan-950/60 hover:scale-105 active:scale-95 transition-all cursor-pointer flex items-center gap-1 sm:gap-1.5"
+                  >
+                    <span>{banner.ctaText || 'Book Now'}</span>
+                    <ArrowRight className="w-2.5 h-2.5 sm:w-3.5 sm:h-3.5 md:w-4 md:h-4" />
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+
+        {/* Prev / Next Buttons */}
+        {banners.length > 1 && (
+          <>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setCurrentIdx((prev) => (prev - 1 + banners.length) % banners.length);
+              }}
+              aria-label="Previous Slide"
+              className="absolute left-1.5 sm:left-2.5 top-1/2 -translate-y-1/2 z-20 w-6 h-6 sm:w-8 sm:h-8 rounded-full bg-black/40 hover:bg-black/70 text-white backdrop-blur-xs border border-white/20 flex items-center justify-center transition-all cursor-pointer opacity-80 hover:opacity-100"
+            >
+              <ChevronLeft className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+            </button>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setCurrentIdx((prev) => (prev + 1) % banners.length);
+              }}
+              aria-label="Next Slide"
+              className="absolute right-1.5 sm:right-2.5 top-1/2 -translate-y-1/2 z-20 w-6 h-6 sm:w-8 sm:h-8 rounded-full bg-black/40 hover:bg-black/70 text-white backdrop-blur-xs border border-white/20 flex items-center justify-center transition-all cursor-pointer opacity-80 hover:opacity-100"
+            >
+              <ChevronRight className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+            </button>
+
+            {/* Dot Navigation Indicators */}
+            <div className="absolute bottom-1.5 sm:bottom-2.5 right-2 sm:right-4 z-20 flex items-center gap-1 sm:gap-1.5 bg-black/40 backdrop-blur-xs px-1.5 sm:px-2.5 py-0.5 sm:py-1 rounded-full border border-white/10">
+              {banners.map((_, idx) => (
+                <button
+                  key={idx}
+                  type="button"
+                  onClick={() => setCurrentIdx(idx)}
+                  aria-label={`Slide ${idx + 1}`}
+                  className={`h-1 sm:h-1.5 rounded-full transition-all cursor-pointer ${
+                    currentIdx === idx ? 'w-4 sm:w-6 bg-cyan-400' : 'w-1 sm:w-2 bg-white/40 hover:bg-white/70'
+                  }`}
+                />
+              ))}
+            </div>
+          </>
+        )}
+      </section>
+    </div>
+  );
+};
+
 export const PatientDashboardPage: React.FC<PatientDashboardPageProps> = ({
   currentUser,
   bookingHistory = [],
@@ -253,10 +457,90 @@ export const PatientDashboardPage: React.FC<PatientDashboardPageProps> = ({
   onOpenVitalLens,
   onLogout,
 }) => {
-  const [activeTab, setActiveTab] = useState<DashboardTab>('overview');
+  const VALID_TABS: DashboardTab[] = [
+    'overview',
+    'symptom-finder',
+    'quick-booking',
+    'history',
+    'vital-lens',
+    'records',
+    'invoices',
+    'rewards',
+    'help',
+    'about',
+    'terms',
+    'privacy',
+    'profile',
+  ];
+
+  // Refresh State Persistence: restore active tab from URL hash or sessionStorage
+  const [activeTab, setActiveTab] = useState<DashboardTab>(() => {
+    if (typeof window !== 'undefined') {
+      const hash = window.location.hash.replace('#', '') as DashboardTab;
+      if (hash && VALID_TABS.includes(hash)) return hash;
+      const saved = sessionStorage.getItem('nhealth_patient_tab') as DashboardTab;
+      if (saved && VALID_TABS.includes(saved)) return saved;
+    }
+    return 'overview';
+  });
+
+  const handleSelectTab = (tab: DashboardTab) => {
+    if (tab === activeTab) return;
+    try {
+      sessionStorage.setItem('nhealth_patient_tab', tab);
+      window.history.pushState({ isPatientTab: true, tab }, '', `/patient-dashboard#${tab}`);
+    } catch {}
+    setActiveTab(tab);
+  };
+
+  // Step-by-step sub-tab navigation on browser Back button
+  useEffect(() => {
+    const handleTabPopState = (e: PopStateEvent) => {
+      if (navHistory.hasOpenModals()) return;
+      const hash = window.location.hash.replace('#', '') as DashboardTab;
+      if (e.state?.isPatientTab && e.state.tab && VALID_TABS.includes(e.state.tab)) {
+        setActiveTab(e.state.tab);
+        sessionStorage.setItem('nhealth_patient_tab', e.state.tab);
+      } else if (hash && VALID_TABS.includes(hash)) {
+        setActiveTab(hash);
+        sessionStorage.setItem('nhealth_patient_tab', hash);
+      } else if (activeTab !== 'overview') {
+        setActiveTab('overview');
+        sessionStorage.setItem('nhealth_patient_tab', 'overview');
+      }
+    };
+    window.addEventListener('popstate', handleTabPopState);
+    return () => window.removeEventListener('popstate', handleTabPopState);
+  }, [activeTab]);
+
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [currentPromoIdx, setCurrentPromoIdx] = useState(0);
+
+  // Dynamic Active Advertising Banners synchronized with Admin Campaign updates
+  const [activeBanners, setActiveBanners] = useState<AdBannerItem[]>(getActiveBanners);
+
+  const section1Banners = useMemo(
+    () => activeBanners.filter((b) => b.section === 'section1'),
+    [activeBanners]
+  );
+  const section2Banners = useMemo(
+    () => activeBanners.filter((b) => b.section === 'section2'),
+    [activeBanners]
+  );
+
+  useEffect(() => {
+    const handleSync = () => {
+      const active = getActiveBanners();
+      setActiveBanners(active);
+    };
+    window.addEventListener('nhealth_banners_updated', handleSync);
+    window.addEventListener('nhealth_banner_updated', handleSync);
+    return () => {
+      window.removeEventListener('nhealth_banners_updated', handleSync);
+      window.removeEventListener('nhealth_banner_updated', handleSync);
+    };
+  }, []);
 
   // Light / Dark Theme Toggle (Light mode is default with clean white background)
   const [theme, setTheme] = useState<'light' | 'dark'>(() => {
@@ -289,6 +573,24 @@ export const PatientDashboardPage: React.FC<PatientDashboardPageProps> = ({
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [walletBalance, setWalletBalance] = useState(500);
   const [referralCopied, setReferralCopied] = useState(false);
+
+  useEffect(() => {
+    if (walletOpen) {
+      return navHistory.pushModal('patient-wallet-modal', 'Health Wallet', () => setWalletOpen(false));
+    }
+  }, [walletOpen]);
+
+  useEffect(() => {
+    if (notificationsOpen) {
+      return navHistory.pushModal('patient-notifications-modal', 'Notifications', () => setNotificationsOpen(false));
+    }
+  }, [notificationsOpen]);
+
+  useEffect(() => {
+    if (mobileSidebarOpen) {
+      return navHistory.pushModal('patient-mobile-sidebar', 'Menu Drawer', () => setMobileSidebarOpen(false));
+    }
+  }, [mobileSidebarOpen]);
   const [notifications, setNotifications] = useState([
     {
       id: 1,
@@ -840,7 +1142,7 @@ export const PatientDashboardPage: React.FC<PatientDashboardPageProps> = ({
                   <button
                     key={item.id}
                     type="button"
-                    onClick={() => setActiveTab(item.id as DashboardTab)}
+                    onClick={() => handleSelectTab(item.id as DashboardTab)}
                     className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl font-medium text-xs transition-all cursor-pointer ${
                       isActive
                         ? isDark
@@ -957,7 +1259,7 @@ export const PatientDashboardPage: React.FC<PatientDashboardPageProps> = ({
                         key={item.id}
                         type="button"
                         onClick={() => {
-                          setActiveTab(item.id as DashboardTab);
+                          handleSelectTab(item.id as DashboardTab);
                           setMobileSidebarOpen(false);
                         }}
                         className={`w-full flex items-center gap-3 px-3.5 py-3 rounded-xl font-medium text-xs transition-colors cursor-pointer ${
@@ -1001,109 +1303,90 @@ export const PatientDashboardPage: React.FC<PatientDashboardPageProps> = ({
 
         {/* Main Content Area */}
         <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 space-y-6">
-          {/* 2. TOP AD BANNER: Dedicated Advertisement / Promo carousel */}
-          <section className="relative overflow-hidden rounded-2xl border border-cyan-500/30 shadow-2xl bg-gradient-to-br from-[#00172d] to-[#00223f]">
-            <div className={`p-5 sm:p-7 bg-gradient-to-r ${PROMO_SLIDES[currentPromoIdx].gradient} transition-all duration-500 relative flex flex-col md:flex-row md:items-center justify-between gap-4`}>
-              {/* Background Glow */}
-              <div className="absolute top-0 right-0 -mr-16 -mt-16 w-64 h-64 rounded-full bg-cyan-500/10 blur-3xl pointer-events-none" />
-
-              <div className="space-y-2 z-10 max-w-2xl">
-                <div className="flex items-center gap-2">
-                  <span className={`text-[10px] font-black px-2.5 py-0.5 rounded-full border ${PROMO_SLIDES[currentPromoIdx].tagColor}`}>
-                    {PROMO_SLIDES[currentPromoIdx].tag}
-                  </span>
-                  <span className="text-xs font-semibold text-cyan-200">
-                    {PROMO_SLIDES[currentPromoIdx].badge}
-                  </span>
-                </div>
-                <h2 className="text-lg sm:text-2xl font-black text-white tracking-tight">
-                  {PROMO_SLIDES[currentPromoIdx].title}
-                </h2>
-                <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
-                  {PROMO_SLIDES[currentPromoIdx].desc}
-                </p>
-              </div>
-
-              <div className="z-10 shrink-0 flex flex-col sm:flex-row md:flex-col items-start sm:items-center md:items-end gap-3">
-                <button
-                  type="button"
-                  onClick={() => handleServiceClick(PROMO_SLIDES[currentPromoIdx].serviceTarget)}
-                  className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-cyan-500 to-teal-500 hover:from-cyan-400 hover:to-teal-400 text-[#001424] font-black text-xs sm:text-sm shadow-xl shadow-cyan-900/40 hover:scale-105 active:scale-95 transition-all cursor-pointer flex items-center gap-1.5"
-                >
-                  <span>{PROMO_SLIDES[currentPromoIdx].cta}</span>
-                  <ArrowRight className="w-4 h-4" />
-                </button>
-
-                {/* Carousel Indicator Dots */}
-                <div className="flex items-center gap-1.5 pt-1">
-                  {PROMO_SLIDES.map((slide, idx) => (
-                    <button
-                      key={slide.id}
-                      type="button"
-                      onClick={() => setCurrentPromoIdx(idx)}
-                      aria-label={`Slide ${idx + 1}`}
-                      className={`h-1.5 rounded-full transition-all cursor-pointer ${
-                        currentPromoIdx === idx ? 'w-6 bg-cyan-400' : 'w-2 bg-white/20 hover:bg-white/40'
-                      }`}
-                    />
-                  ))}
-                </div>
-              </div>
+          {/* 2. DUAL INDEPENDENT 4:1 BANNER SECTIONS (SECTION 1 ON TOP, SECTION 2 DIRECTLY BELOW) */}
+          {activeTab === 'overview' && (section1Banners.length > 0 || section2Banners.length > 0) && (
+            <div className="space-y-4 sm:space-y-5">
+              {section1Banners.length > 0 && (
+                <ResponsiveBannerCarousel
+                  sectionKey="section1"
+                  sectionLabel="Banner Section 1"
+                  accentBadge="Top Carousel • 4:1 Ratio"
+                  banners={section1Banners}
+                  onServiceClick={handleServiceClick}
+                />
+              )}
+              {section2Banners.length > 0 && (
+                <ResponsiveBannerCarousel
+                  sectionKey="section2"
+                  sectionLabel="Banner Section 2"
+                  accentBadge="Bottom Carousel • 4:1 Ratio"
+                  banners={section2Banners}
+                  onServiceClick={handleServiceClick}
+                />
+              )}
             </div>
-          </section>
+          )}
 
           {/* DASHBOARD TAB CONTENT */}
           {/* TAB 1: OVERVIEW */}
           {activeTab === 'overview' && (
             <div className="space-y-6 animate-fade-in">
-              {/* Metric Quick Stats */}
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-                <div className={`p-4 rounded-2xl border shadow-xs space-y-1 ${
+              {/* Metric Quick Stats: Responsive 4x4 grid on mobile/tab view */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-4 gap-3 sm:gap-4 lg:gap-5">
+                <div className={`p-3.5 sm:p-5 rounded-2xl border shadow-xs space-y-1 sm:space-y-1.5 transition-all hover:shadow-md ${
                   isDark ? 'bg-[#001c36] border-cyan-900/40 text-white shadow-lg' : 'bg-white border-slate-200 text-slate-800'
                 }`}>
                   <div className="flex items-center justify-between text-cyan-500">
-                    <span className={`text-[11px] font-semibold ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>Upcoming Visits</span>
-                    <Calendar className="w-4 h-4" />
+                    <span className={`text-[10px] sm:text-xs font-bold uppercase tracking-wider truncate mr-1 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>Upcoming Visits</span>
+                    <div className="w-6 h-6 sm:w-8 sm:h-8 rounded-lg sm:rounded-xl bg-cyan-500/10 flex items-center justify-center shrink-0">
+                      <Calendar className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-cyan-500" />
+                    </div>
                   </div>
-                  <div className={`text-2xl font-black ${isDark ? 'text-white' : 'text-[#002b49]'}`}>
+                  <div className={`text-2xl sm:text-3xl font-black tracking-tight ${isDark ? 'text-white' : 'text-[#002b49]'}`}>
                     {bookingHistory.filter((b) => b.status === 'Confirmed').length || 1}
                   </div>
-                  <span className="text-[10px] text-emerald-500 font-medium">Scheduled at Doorstep</span>
+                  <span className="text-[10px] sm:text-xs text-emerald-500 font-semibold block truncate">Scheduled at Doorstep</span>
                 </div>
 
-                <div className={`p-4 rounded-2xl border shadow-xs space-y-1 ${
+                <div className={`p-3.5 sm:p-5 rounded-2xl border shadow-xs space-y-1 sm:space-y-1.5 transition-all hover:shadow-md ${
                   isDark ? 'bg-[#001c36] border-cyan-900/40 text-white shadow-lg' : 'bg-white border-slate-200 text-slate-800'
                 }`}>
                   <div className="flex items-center justify-between text-purple-500">
-                    <span className={`text-[11px] font-semibold ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>Vital Health Score</span>
-                    <HeartPulse className="w-4 h-4" />
+                    <span className={`text-[10px] sm:text-xs font-bold uppercase tracking-wider truncate mr-1 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>Vital Health Score</span>
+                    <div className="w-6 h-6 sm:w-8 sm:h-8 rounded-lg sm:rounded-xl bg-purple-500/10 flex items-center justify-center shrink-0">
+                      <HeartPulse className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-purple-500" />
+                    </div>
                   </div>
-                  <div className={`text-2xl font-black ${isDark ? 'text-purple-300' : 'text-purple-700'}`}>94 / 100</div>
-                  <span className={`text-[10px] font-medium ${isDark ? 'text-purple-300' : 'text-purple-600'}`}>Optimal Cardio &amp; SpO2</span>
+                  <div className={`text-2xl sm:text-3xl font-black tracking-tight ${isDark ? 'text-purple-300' : 'text-purple-700'}`}>94 / 100</div>
+                  <span className={`text-[10px] sm:text-xs font-semibold block truncate ${isDark ? 'text-purple-300' : 'text-purple-600'}`}>Optimal Cardio &amp; SpO2</span>
                 </div>
 
-                <div className={`p-4 rounded-2xl border shadow-xs space-y-1 ${
+                <div className={`p-3.5 sm:p-5 rounded-2xl border shadow-xs space-y-1 sm:space-y-1.5 transition-all hover:shadow-md ${
                   isDark ? 'bg-[#001c36] border-cyan-900/40 text-white shadow-lg' : 'bg-white border-slate-200 text-slate-800'
                 }`}>
                   <div className="flex items-center justify-between text-teal-500">
-                    <span className={`text-[11px] font-semibold ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>Completed Services</span>
-                    <CheckCircle2 className="w-4 h-4" />
+                    <span className={`text-[10px] sm:text-xs font-bold uppercase tracking-wider truncate mr-1 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>Completed Services</span>
+                    <div className="w-6 h-6 sm:w-8 sm:h-8 rounded-lg sm:rounded-xl bg-teal-500/10 flex items-center justify-center shrink-0">
+                      <CheckCircle2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-teal-500" />
+                    </div>
                   </div>
-                  <div className={`text-2xl font-black ${isDark ? 'text-teal-300' : 'text-teal-700'}`}>
+                  <div className={`text-2xl sm:text-3xl font-black tracking-tight ${isDark ? 'text-teal-300' : 'text-teal-700'}`}>
                     {bookingHistory.length || 3}
                   </div>
-                  <span className="text-[10px] text-teal-600 dark:text-teal-400 font-medium">Diagnostics &amp; Nurse Care</span>
+                  <span className="text-[10px] sm:text-xs text-teal-600 dark:text-teal-400 font-semibold block truncate">Diagnostics &amp; Care</span>
                 </div>
 
-                <div className={`p-4 rounded-2xl border shadow-xs space-y-1 ${
+                <div className={`p-3.5 sm:p-5 rounded-2xl border shadow-xs space-y-1 sm:space-y-1.5 transition-all hover:shadow-md ${
                   isDark ? 'bg-[#001c36] border-cyan-900/40 text-white shadow-lg' : 'bg-white border-slate-200 text-slate-800'
                 }`}>
                   <div className="flex items-center justify-between text-amber-500">
-                    <span className={`text-[11px] font-semibold ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>Family Members</span>
-                    <User className="w-4 h-4" />
+                    <span className={`text-[10px] sm:text-xs font-bold uppercase tracking-wider truncate mr-1 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>Family Members</span>
+                    <div className="w-6 h-6 sm:w-8 sm:h-8 rounded-lg sm:rounded-xl bg-amber-500/10 flex items-center justify-center shrink-0">
+                      <User className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-amber-500" />
+                    </div>
                   </div>
-                  <div className={`text-2xl font-black ${isDark ? 'text-amber-300' : 'text-amber-700'}`}>3 Covered</div>
-                  <span className={`text-[10px] font-medium ${isDark ? 'text-amber-400' : 'text-amber-600'}`}>Self, Spouse, Parent</span>
+                  <div className={`text-2xl sm:text-3xl font-black tracking-tight ${isDark ? 'text-amber-300' : 'text-amber-700'}`}>3 Covered</div>
+                  <span className={`text-[10px] sm:text-xs font-semibold block truncate ${isDark ? 'text-amber-400' : 'text-amber-600'}`}>Self, Spouse, Parent</span>
                 </div>
               </div>
 
@@ -1120,7 +1403,7 @@ export const PatientDashboardPage: React.FC<PatientDashboardPageProps> = ({
                     </h3>
                     <button
                       type="button"
-                      onClick={() => setActiveTab('history')}
+                      onClick={() => handleSelectTab('history')}
                       className="text-xs text-[#008080] dark:text-cyan-400 hover:underline font-semibold cursor-pointer"
                     >
                       View All
@@ -1146,7 +1429,7 @@ export const PatientDashboardPage: React.FC<PatientDashboardPageProps> = ({
                       </div>
                       <button
                         type="button"
-                        onClick={() => setActiveTab('history')}
+                        onClick={() => handleSelectTab('history')}
                         className="px-4 py-2 rounded-lg bg-[#008080] hover:bg-[#006666] text-white font-bold text-xs cursor-pointer shrink-0"
                       >
                         Track Specialist
@@ -1169,7 +1452,7 @@ export const PatientDashboardPage: React.FC<PatientDashboardPageProps> = ({
                       </div>
                       <button
                         type="button"
-                        onClick={() => setActiveTab('quick-booking')}
+                        onClick={() => handleSelectTab('quick-booking')}
                         className="px-4 py-2 rounded-lg bg-[#008080] hover:bg-[#006666] text-white font-bold text-xs cursor-pointer shrink-0"
                       >
                         Book Another Service

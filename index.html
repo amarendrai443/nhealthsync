@@ -26,7 +26,12 @@
     <script>
       if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => {
-          navigator.serviceWorker.register('/sw.js').catch(() => {});
+          if ('caches' in window) {
+            caches.delete('nhealth-pwa-v1').catch(() => {});
+          }
+          navigator.serviceWorker.register('/sw.js').then((reg) => {
+            reg.update();
+          }).catch(() => {});
         });
       }
     </script>

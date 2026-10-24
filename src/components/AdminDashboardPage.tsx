@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { navHistory } from '../utils/navigationHistory';
 import {
   ShieldCheck,
   CheckCircle2,
@@ -39,7 +40,20 @@ import {
   HeartPulse,
   Users,
   ClipboardList,
-  Download
+  Download,
+  Megaphone,
+  Upload,
+  Trash2,
+  Image as ImageIcon,
+  Sliders,
+  Plus,
+  Edit3 as Edit,
+  ArrowUp,
+  ArrowDown,
+  Play,
+  Pause,
+  ChevronLeft,
+  ChevronRight
 } from 'lucide-react';
 import {
   PartnerApplication,
@@ -63,6 +77,18 @@ import {
   updateGuestBookingStatus
 } from '../utils/patientStorage';
 import { ConfirmedBooking } from '../types/serviceBooking';
+import {
+  AdBannerItem,
+  BannerSectionType,
+  getStoredBanners,
+  saveStoredBanners,
+  addStoredBanner,
+  updateStoredBanner,
+  deleteStoredBanner,
+  reorderStoredBanners,
+  resetStoredBanners,
+  DEFAULT_BANNERS
+} from '../utils/advertisingStorage';
 
 interface AdminDashboardPageProps {
   partners: PartnerApplication[];
@@ -74,7 +100,7 @@ interface AdminDashboardPageProps {
   onNavigateOnboarding: () => void;
 }
 
-type AlignmentTab = 'All' | 'Pending' | 'Live' | 'Suspended' | 'HighRisk' | 'Enquiries' | 'VitalScans' | 'GuestBookings';
+type AlignmentTab = 'All' | 'Pending' | 'Live' | 'Suspended' | 'HighRisk' | 'Enquiries' | 'VitalScans' | 'GuestBookings' | 'Advertising';
 
 export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
   partners,
@@ -101,7 +127,47 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
 
   // Dashboard Filters & UI State (Phase 3 Alignment: 4 Primary Buckets)
   const [searchQuery, setSearchQuery] = useState('');
-  const [alignmentTab, setAlignmentTab] = useState<AlignmentTab>('All');
+  const VALID_ADMIN_TABS: AlignmentTab[] = ['All', 'Pending', 'Live', 'Suspended', 'HighRisk', 'Enquiries', 'VitalScans', 'GuestBookings', 'Advertising'];
+  const [rawAlignmentTab, setRawAlignmentTab] = useState<AlignmentTab>(() => {
+    if (typeof window !== 'undefined') {
+      const hash = window.location.hash.replace('#', '') as AlignmentTab;
+      if (hash && VALID_ADMIN_TABS.includes(hash)) return hash;
+      const saved = sessionStorage.getItem('nhealth_admin_tab') as AlignmentTab;
+      if (saved && VALID_ADMIN_TABS.includes(saved)) return saved;
+    }
+    return 'All';
+  });
+
+  const alignmentTab = rawAlignmentTab;
+  const setAlignmentTab = (tab: AlignmentTab) => {
+    if (tab === rawAlignmentTab) return;
+    try {
+      sessionStorage.setItem('nhealth_admin_tab', tab);
+      window.history.pushState({ isAdminTab: true, tab }, '', `/admin#${tab}`);
+    } catch {}
+    setRawAlignmentTab(tab);
+  };
+
+  // Step-by-step sub-tab history navigation on browser Back
+  React.useEffect(() => {
+    const handleAdminPopState = (e: PopStateEvent) => {
+      if (navHistory.hasOpenModals()) return;
+      const hash = window.location.hash.replace('#', '') as AlignmentTab;
+      if (e.state?.isAdminTab && e.state.tab && VALID_ADMIN_TABS.includes(e.state.tab)) {
+        setRawAlignmentTab(e.state.tab);
+        sessionStorage.setItem('nhealth_admin_tab', e.state.tab);
+      } else if (hash && VALID_ADMIN_TABS.includes(hash)) {
+        setRawAlignmentTab(hash);
+        sessionStorage.setItem('nhealth_admin_tab', hash);
+      } else if (rawAlignmentTab !== 'All') {
+        setRawAlignmentTab('All');
+        sessionStorage.setItem('nhealth_admin_tab', 'All');
+      }
+    };
+    window.addEventListener('popstate', handleAdminPopState);
+    return () => window.removeEventListener('popstate', handleAdminPopState);
+  }, [rawAlignmentTab]);
+
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
   const [previewDoc, setPreviewDoc] = useState<PartnerApplication | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -170,6 +236,214 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
     setGuestBookings(updated);
     showToast(`✓ Guest Order ${refId} status updated to "${status}".`);
   };
+
+  // 3. Multi-Banner Advertising Management State & CRUD Handlers (Dual Independent Sections)
+  const [adminBannerSection, setAdminBannerSection] = useState<BannerSectionType>('section1');
+  const [banners, setBanners] = useState<AdBannerItem[]>(getStoredBanners);
+  const [isBannerModalOpen, setIsBannerModalOpen] = useState(false);
+  const [editingBannerId, setEditingBannerId] = useState<string | null>(null);
+  const [bannerForm, setBannerForm] = useState<Partial<AdBannerItem>>({});
+  const [adUploadError, setAdUploadError] = useState<string | null>(null);
+  const [adFormImagePreview, setAdFormImagePreview] = useState<string>('');
+  const [activePreviewIdx, setActivePreviewIdx] = useState(0);
+  const [deletingBanner, setDeletingBanner] = useState<AdBannerItem | null>(null);
+  const bannerFileInputRef = React.useRef<HTMLInputElement | null>(null);
+
+  // Modal Back Button integration with navHistory
+  React.useEffect(() => {
+    if (isBannerModalOpen) {
+      return navHistory.pushModal('admin-banner-modal', 'Banner Editor', () => setIsBannerModalOpen(false));
+    }
+  }, [isBannerModalOpen]);
+
+  React.useEffect(() => {
+    if (deletingBanner) {
+      return navHistory.pushModal('admin-delete-banner-modal', 'Delete Banner', () => setDeletingBanner(null));
+    }
+  }, [deletingBanner]);
+
+  React.useEffect(() => {
+    if (inspectingEnquiry) {
+      return navHistory.pushModal('admin-inspect-enquiry-modal', 'Enquiry Details', () => setInspectingEnquiry(null));
+    }
+  }, [inspectingEnquiry]);
+
+  React.useEffect(() => {
+    if (previewDoc) {
+      return navHistory.pushModal('admin-preview-doc-modal', 'Document Preview', () => setPreviewDoc(null));
+    }
+  }, [previewDoc]);
+
+  React.useEffect(() => {
+    if (inspectingPhone) {
+      return navHistory.pushModal('admin-inspect-phone-modal', 'Registrations Inspection', () => setInspectingPhone(null));
+    }
+  }, [inspectingPhone]);
+
+  React.useEffect(() => {
+    if (reviewingRevocationPartner) {
+      return navHistory.pushModal('admin-revocation-modal', 'Revocation Review', () => setReviewingRevocationPartner(null));
+    }
+  }, [reviewingRevocationPartner]);
+
+  // Sync banners across browser tabs & events
+  React.useEffect(() => {
+    const handleBannersSync = () => {
+      setBanners(getStoredBanners());
+    };
+    window.addEventListener('nhealth_banners_updated', handleBannersSync);
+    window.addEventListener('nhealth_banner_updated', handleBannersSync);
+    return () => {
+      window.removeEventListener('nhealth_banners_updated', handleBannersSync);
+      window.removeEventListener('nhealth_banner_updated', handleBannersSync);
+    };
+  }, []);
+
+  const handleBannerFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setAdUploadError(null);
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      setAdUploadError('Please select a valid image file (PNG, JPG, WebP).');
+      return;
+    }
+    if (file.size > 4 * 1024 * 1024) {
+      setAdUploadError('Image size exceeds 4MB limit. Please compress or select a smaller image.');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result as string;
+      setAdFormImagePreview(result);
+      setBannerForm((prev) => ({ ...prev, imageUrl: result }));
+      showToast('✓ Image loaded successfully into banner form.');
+    };
+    reader.onerror = () => {
+      setAdUploadError('Failed to read image file.');
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleOpenAddBanner = (targetSec?: BannerSectionType) => {
+    setEditingBannerId(null);
+    const sec = targetSec || adminBannerSection;
+    const secBanners = banners.filter((b) => b.section === sec);
+    const newOrder = secBanners.length + 1;
+    setBannerForm({
+      section: sec,
+      title: '',
+      subtitle: '',
+      tag: sec === 'section1' ? 'BANNER SECTION 1' : 'BANNER SECTION 2',
+      ctaText: 'Book Now',
+      ctaLink: 'Home diagnostics & lab tests',
+      imageUrl: 'https://images.unsplash.com/photo-1516549655169-df83a0774514?auto=format&fit=crop&w=1200&q=80',
+      aspectRatio: '4:1',
+      heightMode: 'medium',
+      imageFit: 'cover',
+      scale: 100,
+      isActive: true,
+      order: newOrder,
+      autoPlayInterval: 5,
+    });
+    setAdFormImagePreview('https://images.unsplash.com/photo-1516549655169-df83a0774514?auto=format&fit=crop&w=1200&q=80');
+    setAdUploadError(null);
+    setIsBannerModalOpen(true);
+  };
+
+  const handleOpenEditBanner = (b: AdBannerItem) => {
+    setEditingBannerId(b.id);
+    setBannerForm({ ...b });
+    setAdFormImagePreview(b.imageUrl);
+    setAdUploadError(null);
+    setIsBannerModalOpen(true);
+  };
+
+  const handleCloseBannerModal = () => {
+    setIsBannerModalOpen(false);
+    setEditingBannerId(null);
+    setBannerForm({});
+    setAdUploadError(null);
+  };
+
+  const handleSaveBannerModal = () => {
+    if (!bannerForm.title?.trim()) {
+      setAdUploadError('Please enter a banner title.');
+      return;
+    }
+    if (!bannerForm.imageUrl?.trim()) {
+      setAdUploadError('Please provide an image URL or upload a file.');
+      return;
+    }
+
+    const sec = bannerForm.section || adminBannerSection;
+
+    if (editingBannerId) {
+      updateStoredBanner(editingBannerId, { ...bannerForm, section: sec, aspectRatio: '4:1' });
+      setBanners(getStoredBanners());
+      showToast(`✓ Banner "${bannerForm.title}" updated in ${sec === 'section1' ? 'Section 1' : 'Section 2'}!`);
+    } else {
+      const secBanners = banners.filter((b) => b.section === sec);
+      const created = addStoredBanner({
+        section: sec,
+        imageUrl: bannerForm.imageUrl || '',
+        title: bannerForm.title || '',
+        subtitle: bannerForm.subtitle || '',
+        tag: bannerForm.tag || (sec === 'section1' ? 'BANNER SECTION 1' : 'BANNER SECTION 2'),
+        ctaText: bannerForm.ctaText || 'Learn More',
+        ctaLink: bannerForm.ctaLink || 'Home diagnostics & lab tests',
+        aspectRatio: '4:1',
+        heightMode: bannerForm.heightMode || 'medium',
+        imageFit: bannerForm.imageFit || 'cover',
+        scale: bannerForm.scale || 100,
+        isActive: bannerForm.isActive !== undefined ? bannerForm.isActive : true,
+        order: bannerForm.order || secBanners.length + 1,
+        autoPlayInterval: bannerForm.autoPlayInterval || 5,
+      });
+      setBanners(getStoredBanners());
+      showToast(`✓ New banner "${created.title}" added to ${sec === 'section1' ? 'Section 1' : 'Section 2'}!`);
+    }
+    handleCloseBannerModal();
+  };
+
+  const handleToggleBannerActive = (banner: AdBannerItem) => {
+    updateStoredBanner(banner.id, { isActive: !banner.isActive });
+    setBanners(getStoredBanners());
+    const secLabel = banner.section === 'section1' ? 'Section 1' : 'Section 2';
+    showToast(`Banner "${banner.title}" in ${secLabel} is now ${!banner.isActive ? 'Active (Live)' : 'Inactive (Hidden)'}.`);
+  };
+
+  const handleMoveBannerOrder = (bannerId: string, direction: 'up' | 'down') => {
+    const target = banners.find((b) => b.id === bannerId);
+    if (!target) return;
+    const sec = target.section;
+    const sorted = banners.filter((b) => b.section === sec).sort((a, b) => a.order - b.order);
+    const idx = sorted.findIndex((b) => b.id === bannerId);
+    if (idx < 0) return;
+    const targetIdx = direction === 'up' ? idx - 1 : idx + 1;
+    if (targetIdx < 0 || targetIdx >= sorted.length) return;
+    const newIds = sorted.map((b) => b.id);
+    const temp = newIds[idx];
+    newIds[idx] = newIds[targetIdx];
+    newIds[targetIdx] = temp;
+    reorderStoredBanners(newIds, sec);
+    setBanners(getStoredBanners());
+    showToast(`Display order updated for ${sec === 'section1' ? 'Section 1' : 'Section 2'}.`);
+  };
+
+  const handleConfirmDeleteBanner = () => {
+    if (!deletingBanner) return;
+    deleteStoredBanner(deletingBanner.id);
+    setBanners(getStoredBanners());
+    showToast(`✓ Banner "${deletingBanner.title}" permanently deleted.`);
+    setDeletingBanner(null);
+  };
+
+  const handleResetBanners = () => {
+    const def = resetStoredBanners();
+    setBanners(def);
+    showToast('Banners reset to system defaults for Section 1 and Section 2.');
+  };
+
 
   const handleSetEnquiryStatus = (id: string, newStatus: EnquiryStatus, notes?: string) => {
     if (onUpdateEnquiryStatus) {
@@ -894,6 +1168,34 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
               {guestBookings.filter((b) => b.status === 'Confirmed').length} Confirmed orders
             </span>
           </div>
+
+          {/* Card 8: Dedicated Advertising Management */}
+          <div
+            onClick={() => setAlignmentTab('Advertising')}
+            className={`p-4 rounded-2xl border transition-all cursor-pointer shadow-2xs hover:shadow-md ${
+              alignmentTab === 'Advertising'
+                ? 'bg-indigo-50 border-indigo-500 ring-2 ring-indigo-500/30'
+                : 'bg-white border-slate-200 hover:border-indigo-300'
+            }`}
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-bold text-indigo-950 uppercase tracking-wider block">
+                Advertising
+              </span>
+              <Megaphone className="w-4 h-4 text-indigo-600" />
+            </div>
+            <div className="flex items-baseline gap-1.5 mt-1">
+              <span className="text-xl font-black text-indigo-800">
+                {banners.filter((b) => b.isActive).length} Active
+              </span>
+              <span className="text-[10px] font-bold px-1.5 py-0.2 rounded-full bg-indigo-200 text-indigo-900">
+                {banners.length} Total
+              </span>
+            </div>
+            <span className="text-[10.5px] text-indigo-800 font-medium mt-0.5 block truncate">
+              Dynamic Auto-Slider Carousel
+            </span>
+          </div>
         </div>
 
         {/* ------------------------------------------------------------- */}
@@ -1079,6 +1381,29 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
                   {guestBookings.length}
                 </span>
               </button>
+
+              {/* Tab 8: Advertising Banner Management */}
+              <button
+                type="button"
+                onClick={() => setAlignmentTab('Advertising')}
+                className={`px-3 py-1.5 rounded-xl font-bold text-xs transition-all cursor-pointer flex items-center gap-1.5 ${
+                  alignmentTab === 'Advertising'
+                    ? 'bg-gradient-to-r from-indigo-700 to-blue-700 text-white shadow-xs'
+                    : 'bg-indigo-50 hover:bg-indigo-100 text-indigo-950 border border-indigo-200'
+                }`}
+              >
+                <Megaphone className="w-3.5 h-3.5" />
+                <span>Advertising</span>
+                <span
+                  className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                    alignmentTab === 'Advertising'
+                      ? 'bg-white/20 text-white'
+                      : 'bg-indigo-200 text-indigo-900'
+                  }`}
+                >
+                  {banners.filter((b) => b.isActive).length} Active
+                </span>
+              </button>
             </div>
 
             {/* Quick Count Badge */}
@@ -1094,6 +1419,10 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
               ) : alignmentTab === 'Enquiries' ? (
                 <span>
                   Showing <strong>{filteredEnquiries.length}</strong> of {localEnquiries.length} enquiries
+                </span>
+              ) : alignmentTab === 'Advertising' ? (
+                <span>
+                  Carousel Banners: <strong className="text-emerald-600">{banners.filter((b) => b.isActive).length} Active</strong> • {banners.length} Total Campaigns
                 </span>
               ) : (
                 <span>
@@ -1372,9 +1701,778 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
         </div>
 
         {/* ------------------------------------------------------------- */}
-        {/* TAB PANELS: VITAL SCANS, GUEST BOOKINGS, ENQUIRIES, OR PARTNERS */}
+        {/* TAB PANELS: ADVERTISING, VITAL SCANS, GUEST BOOKINGS, ENQUIRIES, OR PARTNERS */}
         {/* ------------------------------------------------------------- */}
-        {alignmentTab === 'VitalScans' ? (
+        {alignmentTab === 'Advertising' ? (
+          <div className="space-y-6 animate-fade-in">
+            {/* Header & Dimensions Recommendation Card */}
+            <div className="bg-gradient-to-r from-indigo-900 via-[#002b49] to-slate-900 text-white p-5 sm:p-6 rounded-3xl border border-indigo-500/30 shadow-xl space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div className="flex items-center gap-3.5">
+                  <div className="w-11 h-11 rounded-2xl bg-indigo-500/20 text-indigo-300 flex items-center justify-center shrink-0 border border-indigo-400/30">
+                    <Megaphone className="w-6 h-6 text-indigo-300" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-black text-white flex items-center gap-2">
+                      <span>Advertising &amp; Dual 4:1 Banner Carousel Management</span>
+                      <span className="text-[10px] px-2.5 py-0.5 rounded-full font-bold border bg-emerald-500/20 text-emerald-300 border-emerald-500/30">
+                        {banners.filter((b) => b.isActive).length} ACTIVE LIVE
+                      </span>
+                      <span className="text-[10px] px-2 py-0.5 rounded-full font-bold border bg-white/10 text-slate-300 border-white/20">
+                        {banners.length} TOTAL
+                      </span>
+                    </h3>
+                    <p className="text-xs text-slate-300 mt-1">
+                      Manage two stacked, independent 4:1 banner carousels on the patient dashboard. Section 1 appears on top and Section 2 directly below it.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2.5">
+                  <button
+                    type="button"
+                    onClick={handleResetBanners}
+                    className="px-3.5 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white font-bold text-xs transition-colors cursor-pointer"
+                  >
+                    Reset Defaults
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleOpenAddBanner(adminBannerSection)}
+                    className="px-5 py-2 rounded-xl bg-gradient-to-r from-teal-500 to-cyan-500 hover:from-teal-400 hover:to-cyan-400 text-[#00172d] font-black text-xs shadow-lg shadow-teal-900/50 hover:scale-105 active:scale-95 transition-all cursor-pointer flex items-center gap-1.5"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>+ Add to {adminBannerSection === 'section1' ? 'Section 1' : 'Section 2'}</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* RECOMMENDED DIMENSIONS GUIDELINES DISPLAY (Strict 4:1 Ratio) */}
+              <div className="p-4 rounded-2xl bg-white/10 backdrop-blur-xs border border-white/15 flex flex-col md:flex-row items-start md:items-center justify-between gap-3">
+                <div className="flex items-center gap-2.5">
+                  <Info className="w-5 h-5 text-cyan-300 shrink-0" />
+                  <div className="text-xs">
+                    <span className="font-bold text-cyan-200">Enforced Container Aspect Ratio:</span>{' '}
+                    <span className="font-mono bg-cyan-950/80 px-2 py-0.5 rounded border border-cyan-400/40 text-cyan-300 font-bold">4:1 Ratio (aspect-ratio: 4 / 1)</span>
+                    <span className="mx-2 text-slate-400">|</span>
+                    <span className="font-bold text-teal-200">Recommended Dimensions:</span>{' '}
+                    <span className="font-mono bg-teal-950/80 px-2 py-0.5 rounded border border-teal-400/40 text-teal-300 font-bold">1200 x 300 px</span>
+                  </div>
+                </div>
+                <div className="text-[11px] text-slate-300">
+                  Strict 4:1 container width across Desktop, Tablet &amp; Mobile • Max file: 4MB
+                </div>
+              </div>
+            </div>
+
+            {/* DUAL SECTION SELECTOR TABS */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-1.5 rounded-2xl bg-slate-100 border border-slate-200">
+              <button
+                type="button"
+                onClick={() => {
+                  setAdminBannerSection('section1');
+                  setActivePreviewIdx(0);
+                }}
+                className={`flex items-center justify-between p-3.5 rounded-xl font-bold transition-all cursor-pointer ${
+                  adminBannerSection === 'section1'
+                    ? 'bg-white text-indigo-900 shadow-md border border-indigo-200'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
+                }`}
+              >
+                <div className="flex items-center gap-2.5 text-left">
+                  <div className={`w-3 h-3 rounded-full ${adminBannerSection === 'section1' ? 'bg-indigo-600' : 'bg-slate-300'}`} />
+                  <div>
+                    <div className="text-xs sm:text-sm font-black">Banner Section 1 (Top Carousel)</div>
+                    <div className="text-[11px] text-slate-500 font-normal">Displays at the very top of Patient Overview</div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-emerald-100 text-emerald-800">
+                    {banners.filter((b) => b.section === 'section1' && b.isActive).length} Active
+                  </span>
+                  <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-slate-200 text-slate-700">
+                    {banners.filter((b) => b.section === 'section1').length} Total
+                  </span>
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setAdminBannerSection('section2');
+                  setActivePreviewIdx(0);
+                }}
+                className={`flex items-center justify-between p-3.5 rounded-xl font-bold transition-all cursor-pointer ${
+                  adminBannerSection === 'section2'
+                    ? 'bg-white text-indigo-900 shadow-md border border-indigo-200'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
+                }`}
+              >
+                <div className="flex items-center gap-2.5 text-left">
+                  <div className={`w-3 h-3 rounded-full ${adminBannerSection === 'section2' ? 'bg-indigo-600' : 'bg-slate-300'}`} />
+                  <div>
+                    <div className="text-xs sm:text-sm font-black">Banner Section 2 (Bottom Carousel)</div>
+                    <div className="text-[11px] text-slate-500 font-normal">Displays directly below Section 1</div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-emerald-100 text-emerald-800">
+                    {banners.filter((b) => b.section === 'section2' && b.isActive).length} Active
+                  </span>
+                  <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-slate-200 text-slate-700">
+                    {banners.filter((b) => b.section === 'section2').length} Total
+                  </span>
+                </div>
+              </button>
+            </div>
+
+            {/* LIVE PREVIEW CONTAINER (STRICT 4:1 ASPECT RATIO) */}
+            {(() => {
+              const secBanners = banners.filter((b) => b.section === adminBannerSection);
+              const previewBanner = secBanners[activePreviewIdx] || secBanners[0];
+              return (
+                <div className="bg-white p-5 sm:p-6 rounded-3xl border border-slate-200/90 shadow-2xs space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-sm font-black text-slate-800 flex items-center gap-2">
+                      <Eye className="w-4 h-4 text-indigo-600" />
+                      <span>
+                        Live 4:1 Preview: {adminBannerSection === 'section1' ? 'Banner Section 1 (Top)' : 'Banner Section 2 (Bottom)'}
+                      </span>
+                    </h4>
+                    {secBanners.length > 0 && (
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-slate-500 font-medium">
+                          Slide {Math.min(activePreviewIdx + 1, secBanners.length)} of {secBanners.length}
+                        </span>
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => setActivePreviewIdx((prev) => (prev - 1 + secBanners.length) % secBanners.length)}
+                            className="p-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 cursor-pointer"
+                            title="Previous preview slide"
+                          >
+                            <ChevronLeft className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setActivePreviewIdx((prev) => (prev + 1) % secBanners.length)}
+                            className="p-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 cursor-pointer"
+                            title="Next preview slide"
+                          >
+                            <ChevronRight className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {previewBanner ? (
+                    <div
+                      style={{ aspectRatio: '4 / 1', width: '100%' }}
+                      className="relative w-full aspect-[4/1] overflow-hidden rounded-2xl border border-cyan-500/30 shadow-xl bg-[#001424]"
+                    >
+                      {previewBanner.imageUrl ? (
+                        <div className="absolute inset-0 overflow-hidden">
+                          <img
+                            src={previewBanner.imageUrl}
+                            alt={previewBanner.title}
+                            style={{
+                              transform: `scale(${(previewBanner.scale || 100) / 100})`,
+                              transformOrigin: 'center center',
+                            }}
+                            className={`w-full h-full ${
+                              previewBanner.imageFit === 'contain' ? 'object-contain' : 'object-cover'
+                            }`}
+                          />
+                          <div className="absolute inset-0 bg-gradient-to-r from-[#001424]/95 via-[#001424]/75 to-[#001424]/30 pointer-events-none" />
+                        </div>
+                      ) : (
+                        <div className="absolute inset-0 bg-gradient-to-r from-[#00172d] to-[#002b49]" />
+                      )}
+
+                      <div className="relative z-10 h-full p-3 sm:p-5 md:p-6 lg:p-7 flex flex-col justify-between max-w-2xl">
+                        <div className="space-y-0.5 sm:space-y-1.5">
+                          <div className="flex items-center gap-1.5 sm:gap-2">
+                            <span className="text-[8px] sm:text-[10px] font-black px-2 py-0.5 rounded-full border bg-cyan-500/20 text-cyan-300 border-cyan-500/40 uppercase tracking-wider backdrop-blur-xs">
+                              {previewBanner.tag || 'FEATURED'}
+                            </span>
+                            <span className={`text-[8px] sm:text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                              previewBanner.isActive ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30' : 'bg-rose-500/20 text-rose-300 border-rose-500/30'
+                            }`}>
+                              {previewBanner.isActive ? 'Active on Dashboard' : 'Hidden (Inactive)'}
+                            </span>
+                          </div>
+                          <h2 className="text-xs sm:text-lg md:text-xl font-black text-white tracking-tight drop-shadow-md line-clamp-1 sm:line-clamp-2">
+                            {previewBanner.title}
+                          </h2>
+                          <p className="text-[10px] sm:text-xs text-slate-200 drop-shadow line-clamp-1 sm:line-clamp-2 max-w-xl leading-relaxed hidden xs:block">
+                            {previewBanner.subtitle}
+                          </p>
+                        </div>
+
+                        <div className="flex items-center justify-between">
+                          <div className="px-2.5 py-1 sm:px-4 sm:py-1.5 rounded-lg sm:rounded-xl bg-gradient-to-r from-cyan-400 to-teal-400 text-[#001424] font-black text-[10px] sm:text-xs shadow-lg flex items-center gap-1">
+                            <span>{previewBanner.ctaText || 'Learn More'}</span>
+                            <ExternalLink className="w-3 h-3" />
+                          </div>
+                          <span className="text-[10px] text-white/70 hidden sm:inline">
+                            Target: {previewBanner.ctaLink}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="p-8 text-center bg-slate-50 rounded-2xl border border-dashed border-slate-300 text-slate-500 text-xs">
+                      No banners uploaded for {adminBannerSection === 'section1' ? 'Section 1' : 'Section 2'}. Click "+ Add to {adminBannerSection === 'section1' ? 'Section 1' : 'Section 2'}" below.
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
+            {/* BANNERS LIST TABLE FOR SELECTED SECTION */}
+            {(() => {
+              const secBanners = banners.filter((b) => b.section === adminBannerSection);
+              return (
+                <div className="bg-white rounded-3xl border border-slate-200/90 shadow-2xs overflow-hidden">
+                  <div className="p-4 sm:p-5 border-b border-slate-200 bg-slate-50/50 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                    <div>
+                      <h4 className="text-sm sm:text-base font-black text-slate-800 flex items-center gap-2">
+                        <ImageIcon className="w-4 h-4 text-indigo-600" />
+                        <span>
+                          {adminBannerSection === 'section1' ? 'Banner Section 1 Registry' : 'Banner Section 2 Registry'} ({secBanners.length} banners)
+                        </span>
+                      </h4>
+                      <p className="text-xs text-slate-500 mt-0.5">
+                        Independent order, status toggle, and editing for {adminBannerSection === 'section1' ? 'Section 1 (Top)' : 'Section 2 (Bottom)'}.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleOpenAddBanner(adminBannerSection)}
+                      className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>+ Add Banner to {adminBannerSection === 'section1' ? 'Section 1' : 'Section 2'}</span>
+                    </button>
+                  </div>
+
+                  {secBanners.length === 0 ? (
+                    <div className="p-12 text-center">
+                      <ImageIcon className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+                      <h4 className="text-base font-bold text-slate-700">
+                        No banners in {adminBannerSection === 'section1' ? 'Section 1' : 'Section 2'}
+                      </h4>
+                      <p className="text-xs text-slate-400 mt-1 max-w-sm mx-auto">
+                        Add a new banner or reset to system defaults.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={handleResetBanners}
+                        className="mt-4 px-4 py-2 rounded-xl bg-indigo-600 text-white text-xs font-bold hover:bg-indigo-700 cursor-pointer"
+                      >
+                        Reset All Defaults
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left border-collapse text-xs">
+                        <thead>
+                          <tr className="bg-slate-50/90 text-slate-500 font-bold border-b border-slate-200 text-[11px] uppercase tracking-wider">
+                            <th className="py-3 px-4 text-center w-16">Order</th>
+                            <th className="py-3 px-4 w-32">Thumbnail (4:1)</th>
+                            <th className="py-3 px-4">Banner Details &amp; Target</th>
+                            <th className="py-3 px-4 text-center">Aspect / Timing</th>
+                            <th className="py-3 px-4 text-center">Status</th>
+                            <th className="py-3 px-4 text-right">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100 text-slate-700">
+                          {secBanners.map((banner, idx) => (
+                            <tr key={banner.id} className="hover:bg-slate-50/70 transition-colors">
+                              {/* 1. Independent Reorder */}
+                              <td className="py-3.5 px-4 text-center align-middle">
+                                <div className="flex flex-col items-center gap-1">
+                                  <span className="font-mono font-bold text-xs text-slate-800 bg-slate-100 px-2 py-0.5 rounded-md">
+                                    #{banner.order || idx + 1}
+                                  </span>
+                                  <div className="flex items-center gap-0.5">
+                                    <button
+                                      type="button"
+                                      disabled={idx === 0}
+                                      onClick={() => handleMoveBannerOrder(banner.id, 'up')}
+                                      className="p-1 rounded hover:bg-slate-200 text-slate-500 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                                      title="Move Up"
+                                    >
+                                      <ArrowUp className="w-3 h-3" />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      disabled={idx === secBanners.length - 1}
+                                      onClick={() => handleMoveBannerOrder(banner.id, 'down')}
+                                      className="p-1 rounded hover:bg-slate-200 text-slate-500 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                                      title="Move Down"
+                                    >
+                                      <ArrowDown className="w-3 h-3" />
+                                    </button>
+                                  </div>
+                                </div>
+                              </td>
+
+                              {/* 2. 4:1 Thumbnail */}
+                              <td className="py-3.5 px-4 align-middle">
+                                <div
+                                  style={{ aspectRatio: '4 / 1', width: '104px' }}
+                                  className="rounded-xl border border-slate-200 overflow-hidden bg-slate-900 relative shadow-2xs shrink-0 aspect-[4/1]"
+                                >
+                                  {banner.imageUrl ? (
+                                    <img
+                                      src={banner.imageUrl}
+                                      alt={banner.title}
+                                      className="w-full h-full object-cover"
+                                    />
+                                  ) : (
+                                    <div className="w-full h-full flex items-center justify-center text-slate-500">
+                                      <ImageIcon className="w-4 h-4" />
+                                    </div>
+                                  )}
+                                  <span className="absolute bottom-0.5 right-0.5 text-[7px] font-mono font-bold px-1 rounded bg-black/70 text-white">
+                                    4:1
+                                  </span>
+                                </div>
+                              </td>
+
+                              {/* 3. Details */}
+                              <td className="py-3.5 px-4 align-middle">
+                                <div className="space-y-1">
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-200">
+                                      {banner.tag || (banner.section === 'section1' ? 'SECTION 1' : 'SECTION 2')}
+                                    </span>
+                                    <span className="font-bold text-slate-800 text-xs sm:text-sm line-clamp-1">
+                                      {banner.title}
+                                    </span>
+                                  </div>
+                                  <p className="text-[11px] text-slate-500 line-clamp-1">
+                                    {banner.subtitle}
+                                  </p>
+                                  <div className="flex items-center gap-2 text-[10px] text-slate-400">
+                                    <span>CTA: <strong>{banner.ctaText}</strong></span>
+                                    <span>•</span>
+                                    <span className="text-cyan-700 font-medium">Target: {banner.ctaLink}</span>
+                                  </div>
+                                </div>
+                              </td>
+
+                              {/* 4. Sizing & Interval */}
+                              <td className="py-3.5 px-4 text-center align-middle">
+                                <span className="inline-block px-2 py-0.5 rounded-full text-[10px] font-bold bg-teal-50 text-teal-700 border border-teal-200">
+                                  4:1 Aspect Ratio
+                                </span>
+                                <div className="text-[10px] text-slate-400 font-mono mt-1">
+                                  {banner.autoPlayInterval || 5}s cycle ({banner.scale || 100}%)
+                                </div>
+                              </td>
+
+                              {/* 5. Status Toggle */}
+                              <td className="py-3.5 px-4 text-center align-middle">
+                                <button
+                                  type="button"
+                                  onClick={() => handleToggleBannerActive(banner)}
+                                  className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold border transition-all cursor-pointer ${
+                                    banner.isActive
+                                      ? 'bg-emerald-50 text-emerald-700 border-emerald-300 hover:bg-emerald-100'
+                                      : 'bg-slate-100 text-slate-600 border-slate-300 hover:bg-slate-200'
+                                  }`}
+                                >
+                                  <span className={`w-1.5 h-1.5 rounded-full ${banner.isActive ? 'bg-emerald-500' : 'bg-slate-400'}`} />
+                                  <span>{banner.isActive ? 'Active' : 'Inactive'}</span>
+                                </button>
+                              </td>
+
+                              {/* 6. Actions */}
+                              <td className="py-3.5 px-4 text-right align-middle">
+                                <div className="flex items-center justify-end gap-1.5">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleOpenEditBanner(banner)}
+                                    className="px-2.5 py-1.5 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold text-xs flex items-center gap-1 transition-colors cursor-pointer"
+                                    title="Edit Banner"
+                                  >
+                                    <Edit className="w-3.5 h-3.5" />
+                                    <span>Edit</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setDeletingBanner(banner)}
+                                    className="p-1.5 rounded-lg bg-red-50 hover:bg-red-100 text-red-600 transition-colors cursor-pointer"
+                                    title="Delete Banner"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
+            {/* ADD / EDIT BANNER MODAL */}
+            {isBannerModalOpen && (
+              <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto animate-fade-in">
+                <div className="bg-white rounded-3xl max-w-2xl w-full p-5 sm:p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto border border-slate-200">
+                  {/* Modal Header */}
+                  <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                    <div className="flex items-center gap-2">
+                      <div className="w-8 h-8 rounded-xl bg-indigo-100 text-indigo-700 flex items-center justify-center">
+                        <ImageIcon className="w-4 h-4" />
+                      </div>
+                      <h4 className="text-base font-black text-slate-800">
+                        {editingBannerId ? 'Edit Promotional Banner' : 'Add New Promotional Banner'}
+                      </h4>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleCloseBannerModal}
+                      className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 cursor-pointer"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  {adUploadError && (
+                    <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-xs text-red-700 flex items-center gap-2">
+                      <AlertCircle className="w-4 h-4 text-red-500 shrink-0" />
+                      <span>{adUploadError}</span>
+                    </div>
+                  )}
+
+                  {/* Section Assignment Controls */}
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold text-slate-700 block">
+                      Target Banner Section
+                    </label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setBannerForm((prev) => ({ ...prev, section: 'section1' }))}
+                        className={`py-2 px-3 rounded-xl text-xs font-bold border transition-all cursor-pointer text-center ${
+                          (bannerForm.section || adminBannerSection) === 'section1'
+                            ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs'
+                            : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                        }`}
+                      >
+                        <div>Banner Section 1</div>
+                        <div className={`text-[10px] ${ (bannerForm.section || adminBannerSection) === 'section1' ? 'text-indigo-200' : 'text-slate-400'}`}>
+                          Top Carousel
+                        </div>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setBannerForm((prev) => ({ ...prev, section: 'section2' }))}
+                        className={`py-2 px-3 rounded-xl text-xs font-bold border transition-all cursor-pointer text-center ${
+                          (bannerForm.section || adminBannerSection) === 'section2'
+                            ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs'
+                            : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                        }`}
+                      >
+                        <div>Banner Section 2</div>
+                        <div className={`text-[10px] ${ (bannerForm.section || adminBannerSection) === 'section2' ? 'text-indigo-200' : 'text-slate-400'}`}>
+                          Bottom Carousel
+                        </div>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Image Upload & 4:1 Preview Box */}
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-slate-700 flex items-center justify-between">
+                      <span>1. Banner Graphic (Upload File or Enter Image URL)</span>
+                      <span className="text-[11px] text-indigo-600 font-mono font-bold">Strict 4:1 Aspect Ratio</span>
+                    </label>
+
+                    {/* Strict 4:1 Preview Box */}
+                    <div
+                      style={{ aspectRatio: '4 / 1', width: '100%' }}
+                      className="w-full aspect-[4/1] rounded-2xl border border-slate-200 overflow-hidden bg-slate-900 relative"
+                    >
+                      {adFormImagePreview || bannerForm.imageUrl ? (
+                        <img
+                          src={adFormImagePreview || bannerForm.imageUrl}
+                          alt="Banner Preview"
+                          style={{
+                            transform: `scale(${(bannerForm.scale || 100) / 100})`,
+                            transformOrigin: 'center center',
+                          }}
+                          className={`w-full h-full ${
+                            bannerForm.imageFit === 'contain' ? 'object-contain' : 'object-cover'
+                          }`}
+                        />
+                      ) : (
+                        <div className="w-full h-full flex flex-col items-center justify-center text-slate-400 text-xs">
+                          <ImageIcon className="w-8 h-8 mb-1 opacity-50" />
+                          <span>No Image Selected</span>
+                        </div>
+                      )}
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent pointer-events-none" />
+                      <span className="absolute bottom-2 left-3 text-[11px] font-bold text-white drop-shadow">
+                        {bannerForm.title || 'Headline Preview'}
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                      {/* File Uploader Button */}
+                      <div>
+                        <input
+                          ref={bannerFileInputRef}
+                          type="file"
+                          accept="image/*"
+                          onChange={handleBannerFileUpload}
+                          className="hidden"
+                          id="modal-banner-file-input"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => bannerFileInputRef.current?.click()}
+                          className="w-full py-2 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer border border-slate-300"
+                        >
+                          <Upload className="w-3.5 h-3.5 text-indigo-600" />
+                          <span>Browse / Upload Image File</span>
+                        </button>
+                      </div>
+
+                      {/* URL input */}
+                      <div>
+                        <input
+                          type="text"
+                          placeholder="Or paste image URL (https://...)"
+                          value={bannerForm.imageUrl || ''}
+                          onChange={(e) => {
+                            setBannerForm((prev) => ({ ...prev, imageUrl: e.target.value }));
+                            setAdFormImagePreview(e.target.value);
+                          }}
+                          className="w-full text-xs font-semibold px-3 py-2 rounded-xl border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-800"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Form Fields Grid */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                    {/* Tag / Badge */}
+                    <div className="space-y-1">
+                      <label className="text-xs font-bold text-slate-700">Campaign Tag / Pill</label>
+                      <input
+                        type="text"
+                        value={bannerForm.tag || ''}
+                        onChange={(e) => setBannerForm((prev) => ({ ...prev, tag: e.target.value }))}
+                        placeholder="e.g. EXCLUSIVE OFFER, EMERGENCY DISPATCH"
+                        className="w-full text-xs font-semibold px-3 py-2 rounded-xl border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-800"
+                      />
+                    </div>
+
+                    {/* Headline / Title */}
+                    <div className="space-y-1">
+                      <label className="text-xs font-bold text-slate-700">Banner Headline (Title) *</label>
+                      <input
+                        type="text"
+                        value={bannerForm.title || ''}
+                        onChange={(e) => setBannerForm((prev) => ({ ...prev, title: e.target.value }))}
+                        placeholder="e.g. Comprehensive Full Body Checkup"
+                        className="w-full text-xs font-semibold px-3 py-2 rounded-xl border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-800"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Subtitle / Description */}
+                  <div className="space-y-1">
+                    <label className="text-xs font-bold text-slate-700">Subtitle / Description</label>
+                    <textarea
+                      rows={2}
+                      value={bannerForm.subtitle || ''}
+                      onChange={(e) => setBannerForm((prev) => ({ ...prev, subtitle: e.target.value }))}
+                      placeholder="Detail key healthcare perks, discount codes, or doorstep turnaround..."
+                      className="w-full text-xs font-semibold px-3 py-2 rounded-xl border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-800 resize-none"
+                    />
+                  </div>
+
+                  {/* CTA Text & Destination Link */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <label className="text-xs font-bold text-slate-700">CTA Button Text</label>
+                      <input
+                        type="text"
+                        value={bannerForm.ctaText || ''}
+                        onChange={(e) => setBannerForm((prev) => ({ ...prev, ctaText: e.target.value }))}
+                        placeholder="e.g. Book Checkup @ 45% OFF"
+                        className="w-full text-xs font-semibold px-3 py-2 rounded-xl border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-800"
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-xs font-bold text-slate-700">Destination Service (Booking Modal)</label>
+                      <select
+                        value={bannerForm.ctaLink || 'Home diagnostics & lab tests'}
+                        onChange={(e) => setBannerForm((prev) => ({ ...prev, ctaLink: e.target.value }))}
+                        className="w-full text-xs font-semibold px-3 py-2 rounded-xl border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-800"
+                      >
+                        <option value="Home diagnostics & lab tests">Home diagnostics &amp; lab tests</option>
+                        <option value="Doctor Home Consultations">Doctor Home Consultations</option>
+                        <option value="Ambulance & medical transport">Ambulance &amp; Emergency Transport</option>
+                        <option value="Home nursing & patient care">Home nursing &amp; patient care</option>
+                        <option value="Pharmacy & doorstep medicines">Pharmacy &amp; doorstep medicines</option>
+                        <option value="Hospital bed & surgery coordination">Hospital bed &amp; surgery coordination</option>
+                        <option value="vital-lens">Vital Lens™ AI Facial Scan</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* Sizing & Aspect Ratio Controls */}
+                  <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 space-y-3">
+                    <div className="text-xs font-black text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                      <Sliders className="w-3.5 h-3.5 text-indigo-600" />
+                      <span>4:1 Aspect Ratio &amp; Carousel Timing Controls</span>
+                    </div>
+
+                    {/* Ratio notice */}
+                    <div className="p-2.5 rounded-xl bg-teal-50 border border-teal-200 text-xs text-teal-800 flex items-center justify-between">
+                      <span className="font-bold">Aspect Ratio: 4:1 (Strictly Enforced)</span>
+                      <span className="text-[11px] font-mono text-teal-600">aspect-ratio: 4 / 1</span>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                      {/* Image Fit */}
+                      <div className="space-y-1">
+                        <label className="text-[11px] font-bold text-slate-700">Image Fit</label>
+                        <select
+                          value={bannerForm.imageFit || 'cover'}
+                          onChange={(e) => setBannerForm((prev) => ({ ...prev, imageFit: e.target.value as any }))}
+                          className="w-full text-xs font-semibold px-2.5 py-1.5 rounded-xl border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-800"
+                        >
+                          <option value="cover">Cover (Fill &amp; Fit 4:1 Container)</option>
+                          <option value="contain">Contain (Show Full Image)</option>
+                        </select>
+                      </div>
+
+                      {/* Auto-play Interval */}
+                      <div className="space-y-1">
+                        <label className="text-[11px] font-bold text-slate-700">Carousel Cycle Duration</label>
+                        <select
+                          value={bannerForm.autoPlayInterval || 5}
+                          onChange={(e) => setBannerForm((prev) => ({ ...prev, autoPlayInterval: Number(e.target.value) }))}
+                          className="w-full text-xs font-semibold px-2.5 py-1.5 rounded-xl border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-800"
+                        >
+                          <option value={3}>3 seconds (Fast)</option>
+                          <option value={4}>4 seconds</option>
+                          <option value={5}>5 seconds (Standard)</option>
+                          <option value={6}>6 seconds (Relaxed)</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    {/* Scale Zoom Slider & Active Toggle */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                      <div className="space-y-1">
+                        <div className="flex items-center justify-between text-[11px] font-bold text-slate-700">
+                          <span>Image Zoom Scale</span>
+                          <span className="font-mono text-indigo-600">{bannerForm.scale || 100}%</span>
+                        </div>
+                        <input
+                          type="range"
+                          min="80"
+                          max="140"
+                          step="5"
+                          value={bannerForm.scale || 100}
+                          onChange={(e) => setBannerForm((prev) => ({ ...prev, scale: Number(e.target.value) }))}
+                          className="w-full accent-indigo-600 cursor-pointer"
+                        />
+                      </div>
+
+                      <div className="flex items-center justify-between p-2 rounded-xl bg-white border border-slate-200">
+                        <div>
+                          <span className="text-xs font-bold text-slate-800 block">Active Status</span>
+                          <span className="text-[10px] text-slate-400">Show in live slider</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setBannerForm((prev) => ({ ...prev, isActive: prev.isActive !== undefined ? !prev.isActive : false }))}
+                          className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                            bannerForm.isActive ? 'bg-emerald-600' : 'bg-slate-300'
+                          }`}
+                        >
+                          <span
+                            className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                              bannerForm.isActive ? 'translate-x-5' : 'translate-x-0'
+                            }`}
+                          />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Modal Action Buttons */}
+                  <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-100">
+                    <button
+                      type="button"
+                      onClick={handleCloseBannerModal}
+                      className="px-4 py-2.5 rounded-xl text-slate-600 hover:bg-slate-100 text-xs font-bold cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleSaveBannerModal}
+                      className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 via-blue-600 to-teal-600 hover:from-indigo-500 hover:to-teal-500 text-white font-black text-xs shadow-md hover:shadow-lg transition-all cursor-pointer flex items-center gap-1.5"
+                    >
+                      <Check className="w-4 h-4" />
+                      <span>{editingBannerId ? 'Save Banner Changes' : 'Add Banner to Carousel'}</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* DELETE BANNER CONFIRMATION MODAL */}
+            {deletingBanner && (
+              <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-fade-in">
+                <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl space-y-4 border border-red-200">
+                  <div className="w-12 h-12 rounded-2xl bg-red-100 text-red-600 flex items-center justify-center mx-auto">
+                    <Trash2 className="w-6 h-6" />
+                  </div>
+                  <div className="text-center space-y-1">
+                    <h4 className="text-base font-black text-slate-800">
+                      Delete Promotional Banner?
+                    </h4>
+                    <p className="text-xs text-slate-500">
+                      Are you sure you want to permanently delete <strong>"{deletingBanner.title}"</strong>? This will immediately remove it from the patient dashboard carousel.
+                    </p>
+                  </div>
+                  <div className="flex items-center justify-center gap-2 pt-2">
+                    <button
+                      type="button"
+                      onClick={() => setDeletingBanner(null)}
+                      className="px-4 py-2 rounded-xl text-slate-600 hover:bg-slate-100 text-xs font-bold cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleConfirmDeleteBanner}
+                      className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-bold cursor-pointer transition-colors"
+                    >
+                      Yes, Delete Permanently
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        ) : alignmentTab === 'VitalScans' ? (
           <div className="bg-white rounded-2xl sm:rounded-3xl border border-slate-200/90 shadow-2xs overflow-hidden">
             {/* Table Header Summary */}
             <div className="p-4 sm:p-5 border-b border-slate-200 bg-purple-50/50 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">

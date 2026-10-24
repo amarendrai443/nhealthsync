@@ -81,6 +81,7 @@ import { registerLivePartnerDoctor, unregisterPartnerDoctor } from './data/docto
 import { ServiceItem, BookingFormData, UserAccount, ConfirmedBooking } from './types/serviceBooking';
 import { EXTRACTED_SERVICES } from './data/servicesData';
 import { saveGuestBooking } from './utils/patientStorage';
+import { navHistory } from './utils/navigationHistory';
 
 const NHEALTH_LOGO_URL = 'https://i.ibb.co/JW6HFRV0/Nhealth-logo-8cm-x-8cm-high-quality-1-1.png';
 const NHEALTH_LOGO_FALLBACK = '/nhealth_logo.png';
@@ -379,7 +380,7 @@ export default function App() {
     }
   });
 
-  // Dedicated Page Routing State with Authentication & Routing Lock for logged-in users
+  // SPA Routing State with Full Refresh Persistence (URL path, sessionStorage & localStorage)
   const [currentRoute, setCurrentRoute] = useState<RoutePath>(() => {
     let storedUser: UserAccount | null = null;
     try {
@@ -389,130 +390,113 @@ export default function App() {
 
     if (typeof window !== 'undefined') {
       if (window.location.hash === '#teams') return 'teams';
-      const parsed = getRouteFromPath(window.location.pathname);
-      // Restrict access to Hero/Landing page for logged-in users
-      if (storedUser && (parsed === 'home' || window.location.pathname === '/' || window.location.pathname === '')) {
-        return storedUser.role === 'Patient' || storedUser.accountType === 'Patient'
-          ? 'patient-dashboard'
-          : 'dashboard';
+      const pathRoute = getRouteFromPath(window.location.pathname);
+      if (pathRoute && pathRoute !== 'home') {
+        sessionStorage.setItem('nhealth_active_route', pathRoute);
+        return pathRoute;
       }
-      return parsed;
+      // Check session storage for persisted route on refresh
+      const savedSession = sessionStorage.getItem('nhealth_active_route') as RoutePath | null;
+      if (savedSession && savedSession !== 'home') {
+        return savedSession;
+      }
+      if (storedUser) {
+        const root = storedUser.role === 'Patient' || storedUser.accountType === 'Patient' ? 'patient-dashboard' : 'dashboard';
+        sessionStorage.setItem('nhealth_active_route', root);
+        return root;
+      }
+      return 'home';
     }
     return storedUser ? 'patient-dashboard' : 'home';
   });
 
-  const navigateTo = (route: RoutePath, urlPath?: string) => {
-    // Enforce logout-only exit for logged-in patients: Landing/Hero is completely inaccessible
-    if (isLoggedIn && (currentUser?.role === 'Patient' || currentUser?.accountType === 'Patient')) {
-      if (route === 'home' || route === 'teams' || !route) {
-        route = 'patient-dashboard';
-        urlPath = '/patient-dashboard';
-      }
-    } else if (isLoggedIn && route === 'home') {
-      const fallbackRoute: RoutePath = 'dashboard';
-      route = fallbackRoute;
-      urlPath = `/${fallbackRoute}`;
-    }
+  // Floating Exit Toast prompt for root page gradual exit
+  const [showExitPrompt, setShowExitPrompt] = useState(false);
+  useEffect(() => navHistory.onExitPrompt(setShowExitPrompt), []);
 
+  const navigateTo = (route: RoutePath, urlPath?: string) => {
     let path = urlPath;
     if (!path) {
       if (route === 'home') path = '/';
-      else if (route === 'teams') path = '#teams';
+      else if (route === 'teams') path = '/teams';
       else path = `/${route}`;
     }
     if (typeof window !== 'undefined') {
-      window.history.pushState({ patientLocked: isLoggedIn && (currentUser?.role === 'Patient' || currentUser?.accountType === 'Patient') }, '', path);
+      sessionStorage.setItem('nhealth_active_route', route);
+      window.history.pushState({ route }, '', path);
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }
     setCurrentRoute(route);
   };
 
-  // Dedicated Session Lock for logged-in patients: trap browser/device back button & lock session
-  useEffect(() => {
-    const isPatientSession =
-      isLoggedIn && (currentUser?.role === 'Patient' || currentUser?.accountType === 'Patient');
-
-    if (!isPatientSession) return;
-
-    if (typeof window !== 'undefined') {
-      try {
-        if (window.location.pathname !== '/patient-dashboard') {
-          window.history.replaceState({ patientLocked: true }, '', '/patient-dashboard');
-        }
-        window.history.pushState({ patientLocked: true }, '', '/patient-dashboard');
-      } catch {}
-    }
-
-    const handlePatientSessionTrap = (e: PopStateEvent) => {
-      // Re-push patient dashboard state to keep user locked inside active session
-      if (typeof window !== 'undefined') {
-        try {
-          window.history.pushState({ patientLocked: true }, '', '/patient-dashboard');
-        } catch {}
-      }
-      setCurrentRoute('patient-dashboard');
-    };
-
-    window.addEventListener('popstate', handlePatientSessionTrap);
-    return () => {
-      window.removeEventListener('popstate', handlePatientSessionTrap);
-    };
-  }, [isLoggedIn, currentUser]);
-
+  // Browser History & Popstate Navigation Handler (Step-by-step back and gradual exit flow)
   useEffect(() => {
     const handlePopState = (e: PopStateEvent) => {
-      if (isLoggedIn && (currentUser?.role === 'Patient' || currentUser?.accountType === 'Patient')) {
-        // Enforce active session lock: trap browser/hardware back button and stay inside patient dashboard
-        try {
-          window.history.pushState({ patientLocked: true }, '', '/patient-dashboard');
-        } catch {}
-        setCurrentRoute('patient-dashboard');
+      // 1. If any modal/popup was open, navHistory closed it and handled the back event
+      if (navHistory.hasOpenModals()) {
         return;
       }
-      if (window.location.hash === '#teams') {
-        setCurrentRoute('teams');
+
+      // 2. If this was an internal sub-tab change, let the component handle its tab history
+      if (e.state?.isPatientTab || e.state?.isAdminTab) {
+        return;
+      }
+
+      // 3. Resolve destination route from history state or URL
+      let destRoute: RoutePath = 'home';
+      if (e.state?.route) {
+        destRoute = e.state.route;
+      } else if (window.location.hash === '#teams') {
+        destRoute = 'teams';
       } else {
-        const parsed = getRouteFromPath(window.location.pathname);
-        if (isLoggedIn && (parsed === 'home' || window.location.pathname === '/')) {
-          setCurrentRoute(
-            currentUser?.role === 'Patient' || currentUser?.accountType === 'Patient'
-              ? 'patient-dashboard'
-              : 'dashboard'
-          );
-        } else {
-          setCurrentRoute(parsed);
-        }
+        destRoute = getRouteFromPath(window.location.pathname);
       }
-    };
-    const handleHashChange = () => {
-      if (isLoggedIn && (currentUser?.role === 'Patient' || currentUser?.accountType === 'Patient')) {
-        try {
-          window.history.pushState({ patientLocked: true }, '', '/patient-dashboard');
-        } catch {}
-        setCurrentRoute('patient-dashboard');
+
+      const rootRoute: RoutePath = isLoggedIn
+        ? (currentUser?.role === 'Patient' || currentUser?.accountType === 'Patient' ? 'patient-dashboard' : 'dashboard')
+        : 'home';
+
+      // 4. Gradual Exit: If already at the root page and user presses Back again
+      if (currentRoute === rootRoute) {
+        const allowExit = navHistory.handleRootBackPress();
+        if (!allowExit) {
+          // Re-push root route so the user stays inside the app until double-back confirmation
+          const rootPath = rootRoute === 'home' ? '/' : `/${rootRoute}`;
+          window.history.pushState({ route: rootRoute }, '', rootPath);
+        }
         return;
       }
+
+      // 5. Navigate 1 step back to previously visited internal page
+      setCurrentRoute(destRoute);
+      sessionStorage.setItem('nhealth_active_route', destRoute);
+    };
+
+    const handleHashChange = () => {
       if (window.location.hash === '#teams') {
         setCurrentRoute('teams');
-      } else if (window.location.pathname === '/' && window.location.hash !== '#teams') {
-        if (isLoggedIn) {
-          setCurrentRoute(
-            currentUser?.role === 'Patient' || currentUser?.accountType === 'Patient'
-              ? 'patient-dashboard'
-              : 'dashboard'
-          );
-        } else {
-          setCurrentRoute('home');
-        }
+        sessionStorage.setItem('nhealth_active_route', 'teams');
       }
     };
+
     window.addEventListener('popstate', handlePopState);
     window.addEventListener('hashchange', handleHashChange);
     return () => {
       window.removeEventListener('popstate', handlePopState);
       window.removeEventListener('hashchange', handleHashChange);
     };
-  }, [isLoggedIn, currentUser]);
+  }, [currentRoute, isLoggedIn, currentUser]);
+
+  // Keep URL & sessionStorage in sync on mount
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      sessionStorage.setItem('nhealth_active_route', currentRoute);
+      const expectedPath = currentRoute === 'home' ? '/' : currentRoute === 'teams' ? '/teams' : `/${currentRoute}`;
+      if (window.location.pathname !== expectedPath && !window.location.pathname.startsWith(expectedPath)) {
+        window.history.replaceState({ route: currentRoute }, '', expectedPath);
+      }
+    }
+  }, [currentRoute]);
 
   // Partner Directory & Admin Approval State
   const [partners, setPartners] = useState<PartnerApplication[]>(() => {
@@ -705,6 +689,56 @@ export default function App() {
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [showPwaInstallModal, setShowPwaInstallModal] = useState(false);
   const [isAppInstalled, setIsAppInstalled] = useState(false);
+
+  // 2. POPUP / MODAL BACK-BUTTON BEHAVIOR:
+  // When any modal/popup/overlay is open, pressing the browser/device Back button closes ONLY the open popup/modal
+  useEffect(() => {
+    if (vitalLensOpen) return navHistory.pushModal('vitalLens', 'Vital Lens Scan', () => setVitalLensOpen(false));
+  }, [vitalLensOpen]);
+
+  useEffect(() => {
+    if (isServiceBookingOpen) return navHistory.pushModal('serviceBooking', 'Service Booking', () => setIsServiceBookingOpen(false));
+  }, [isServiceBookingOpen]);
+
+  useEffect(() => {
+    if (isWarningModalOpen) return navHistory.pushModal('warningModal', 'Guest Booking Warning', () => setIsWarningModalOpen(false));
+  }, [isWarningModalOpen]);
+
+  useEffect(() => {
+    if (isConfirmationModalOpen) return navHistory.pushModal('confirmationModal', 'Booking Confirmed', () => setIsConfirmationModalOpen(false));
+  }, [isConfirmationModalOpen]);
+
+  useEffect(() => {
+    if (myBookingsModalOpen) return navHistory.pushModal('myBookings', 'My Bookings', () => setMyBookingsModalOpen(false));
+  }, [myBookingsModalOpen]);
+
+  useEffect(() => {
+    if (voiceAssistantOpen) return navHistory.pushModal('voiceAssistant', 'Voice Assistant', () => setVoiceAssistantOpen(false));
+  }, [voiceAssistantOpen]);
+
+  useEffect(() => {
+    if (searchModalOpen) return navHistory.pushModal('searchModal', 'Global Search', () => setSearchModalOpen(false));
+  }, [searchModalOpen]);
+
+  useEffect(() => {
+    if (loginModalOpen) return navHistory.pushModal('loginModal', 'Login Modal', () => setLoginModalOpen(false));
+  }, [loginModalOpen]);
+
+  useEffect(() => {
+    if (partnerModalOpen) return navHistory.pushModal('partnerModal', 'Partner Modal', () => setPartnerModalOpen(false));
+  }, [partnerModalOpen]);
+
+  useEffect(() => {
+    if (enquiryThankYouModalOpen) return navHistory.pushModal('enquiryThankYou', 'Enquiry Confirmation', () => setEnquiryThankYouModalOpen(false));
+  }, [enquiryThankYouModalOpen]);
+
+  useEffect(() => {
+    if (showPwaInstallModal) return navHistory.pushModal('pwaInstall', 'PWA Install Prompt', () => setShowPwaInstallModal(false));
+  }, [showPwaInstallModal]);
+
+  useEffect(() => {
+    if (mobileMenuOpen) return navHistory.pushModal('mobileMenu', 'Mobile Menu', () => setMobileMenuOpen(false));
+  }, [mobileMenuOpen]);
 
   // Continuous horizontal auto-scroll & interactive drag controls for services section (Desktop & Mobile)
   const servicesMarqueeRef = useRef<HTMLDivElement | null>(null);
@@ -4120,6 +4154,18 @@ export default function App() {
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Gradual Exit Toast Prompt (Visible when Back is pressed at root page) */}
+      {showExitPrompt && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[9999] px-4 py-2.5 rounded-full bg-[#00172d]/95 text-white text-xs font-bold border border-cyan-400/50 shadow-2xl backdrop-blur-md flex items-center gap-2 animate-bounce"
+        >
+          <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
+          <span>Press Back again to exit</span>
         </div>
       )}
     </div>

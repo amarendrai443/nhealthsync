@@ -85,6 +85,7 @@ export const VitalLensModal: React.FC<VitalLensModalProps> = ({
   // Step 4: Camera & Scan State
   const [cameraFacingMode, setCameraFacingMode] = useState<'user' | 'environment'>('user');
   const [showCameraPrompt, setShowCameraPrompt] = useState(false);
+  const [isSimulatedScan, setIsSimulatedScan] = useState(false);
   const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [scanSecondsElapsed, setScanSecondsElapsed] = useState(0);
@@ -306,11 +307,15 @@ export const VitalLensModal: React.FC<VitalLensModalProps> = ({
   // Camera Management
   const startCamera = async (mode: 'user' | 'environment' = cameraFacingMode) => {
     setCameraError(null);
+    setIsSimulatedScan(false);
     // Explicitly re-initialize screen wake lock on camera start/retry
     await requestScreenWakeLock();
     try {
       if (cameraStream) {
         cameraStream.getTracks().forEach((track) => track.stop());
+      }
+      if (!navigator?.mediaDevices || typeof navigator.mediaDevices.getUserMedia !== 'function') {
+        throw new Error('Camera API is not supported or is restricted in this browser environment.');
       }
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
@@ -325,7 +330,7 @@ export const VitalLensModal: React.FC<VitalLensModalProps> = ({
       setCameraStream(stream);
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
-        videoRef.current.play();
+        videoRef.current.play().catch(() => {});
       }
 
       // Initialize vPPG processor
@@ -333,13 +338,21 @@ export const VitalLensModal: React.FC<VitalLensModalProps> = ({
       wavePointsRef.current = [];
       setScanSecondsElapsed(0);
       setLiveBpm(72);
-      startScanningProcess();
+      startScanningProcess(false);
     } catch (err: unknown) {
-      console.error('Camera access error:', err);
+      console.warn('Camera access unavailable or permission denied:', (err as Error)?.message || err);
       // Automatically release the wake lock once scanning fails
       releaseScreenWakeLock();
+      const isPermissionDenied =
+        (err as Error)?.name === 'NotAllowedError' ||
+        (err as Error)?.name === 'PermissionDeniedError' ||
+        String(err).toLowerCase().includes('permission') ||
+        String(err).toLowerCase().includes('not allowed');
+
       setCameraError(
-        'Unable to access your device camera. Please grant camera permission in your browser settings to proceed with the optical vitals scan.'
+        isPermissionDenied
+          ? 'Camera access permission was denied by your browser. Please allow camera permissions in your browser address bar settings, or proceed with the simulated optical vitals scan.'
+          : 'Unable to access your device camera. Please check your camera settings, or proceed with the simulated optical vitals scan.'
       );
     }
   };
@@ -351,7 +364,23 @@ export const VitalLensModal: React.FC<VitalLensModalProps> = ({
     await startCamera(mode);
   };
 
+  const startSimulatedScan = async () => {
+    setCameraError(null);
+    setIsSimulatedScan(true);
+    setShowCameraPrompt(false);
+    setCurrentStep(4);
+    stopCamera();
+    await requestScreenWakeLock();
+
+    processorRef.current.reset();
+    wavePointsRef.current = [];
+    setScanSecondsElapsed(0);
+    setLiveBpm(72);
+    startScanningProcess(true);
+  };
+
   const toggleCameraFacingMode = async () => {
+    if (isSimulatedScan) return;
     const nextMode = cameraFacingMode === 'user' ? 'environment' : 'user';
     setCameraFacingMode(nextMode);
     await startCamera(nextMode);
@@ -368,7 +397,7 @@ export const VitalLensModal: React.FC<VitalLensModalProps> = ({
   };
 
   // Step 4 Scanning and vPPG Extraction Loop
-  const startScanningProcess = () => {
+  const startScanningProcess = (isSimulated = false) => {
     // 1. Timer countdown for SCAN_DURATION_SECONDS (70s)
     let elapsed = 0;
     if (scanTimerRef.current) clearInterval(scanTimerRef.current);
@@ -403,8 +432,40 @@ export const VitalLensModal: React.FC<VitalLensModalProps> = ({
       }
     }, 1000);
 
-    // 2. Continuous frame extraction from video -> canvas
+    // 2. Continuous frame extraction from video -> canvas OR synthetic biometric simulation
     const processFrame = () => {
+      if (isSimulated) {
+        const canvas = canvasRef.current;
+        if (canvas) {
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            const cw = canvas.width;
+            const ch = canvas.height;
+            ctx.fillStyle = '#050c18';
+            ctx.fillRect(0, 0, cw, ch);
+
+            drawSimulatedBiometricFace(ctx, cw, ch, performance.now());
+            drawMediaPipeMeshOverlay(ctx, cw, ch);
+
+            const now = performance.now();
+            const targetBpm = userData.gender === 'Female' ? 74 : 70;
+            const hrHz = targetBpm / 60;
+            const angle = (now / 1000) * hrHz * 2 * Math.PI;
+            // Realistic photoplethysmogram wave with dicrotic notch
+            const pulseValue = Math.sin(angle) * 0.72 + Math.sin(angle * 2) * 0.22 - 0.08 * Math.cos(angle * 3);
+
+            processorRef.current.addFrame(132 + pulseValue * 14, 122 + pulseValue * 8, 108, now);
+            wavePointsRef.current.push(pulseValue);
+            if (wavePointsRef.current.length > 90) {
+              wavePointsRef.current.shift();
+            }
+            drawPPGWaveform();
+          }
+        }
+        animationFrameRef.current = requestAnimationFrame(processFrame);
+        return;
+      }
+
       if (!videoRef.current || !canvasRef.current || videoRef.current.readyState < 2) {
         animationFrameRef.current = requestAnimationFrame(processFrame);
         return;
@@ -471,6 +532,34 @@ export const VitalLensModal: React.FC<VitalLensModalProps> = ({
     };
 
     animationFrameRef.current = requestAnimationFrame(processFrame);
+  };
+
+  // Draw simulated biometric silhouette & vascular pulsation when camera is unavailable
+  const drawSimulatedBiometricFace = (ctx: CanvasRenderingContext2D, w: number, h: number, timeMs: number) => {
+    const cx = w * 0.5;
+    const cy = h * 0.46;
+    const rx = w * 0.24;
+    const ry = h * 0.33;
+
+    // Glowing face silhouette
+    const pulseFactor = 0.5 + 0.5 * Math.sin((timeMs / 1000) * (liveBpm / 60) * 2 * Math.PI);
+    const grad = ctx.createRadialGradient(cx, cy, rx * 0.2, cx, cy, rx * 1.2);
+    grad.addColorStop(0, `rgba(168, 85, 247, ${0.14 + 0.08 * pulseFactor})`);
+    grad.addColorStop(0.6, `rgba(13, 148, 136, ${0.1 + 0.05 * pulseFactor})`);
+    grad.addColorStop(1, 'rgba(0, 20, 36, 0)');
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, rx, ry, 0, 0, 2 * Math.PI);
+    ctx.fill();
+
+    // Vascular capillary zones (forehead & cheeks)
+    const capGrad = ctx.createRadialGradient(cx, cy - ry * 0.45, 5, cx, cy - ry * 0.45, rx * 0.5);
+    capGrad.addColorStop(0, `rgba(236, 72, 153, ${0.2 + 0.12 * pulseFactor})`);
+    capGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+    ctx.fillStyle = capGrad;
+    ctx.beginPath();
+    ctx.arc(cx, cy - ry * 0.45, rx * 0.5, 0, 2 * Math.PI);
+    ctx.fill();
   };
 
   // Draw futuristic Google MediaPipe biometric Face Mesh on top of camera
@@ -675,6 +764,7 @@ export const VitalLensModal: React.FC<VitalLensModalProps> = ({
     setScanSecondsElapsed(0);
     setLiveBpm(72);
     setCameraError(null);
+    setIsSimulatedScan(false);
     setPdfDownloadSuccess(false);
     setIsGeneratingPdf(false);
     wavePointsRef.current = [];
@@ -1199,7 +1289,7 @@ export const VitalLensModal: React.FC<VitalLensModalProps> = ({
                   <span>Live VPPG Capillary Pulse Wave</span>
                 </span>
                 <span className="text-teal-400 font-mono text-[10px] bg-teal-950/70 px-2 py-0.5 rounded-full border border-teal-500/30">
-                  70 FPS Optical Filter
+                  {isSimulatedScan ? 'Clinical Synthetic vPPG' : '70 FPS Optical Filter'}
                 </span>
               </div>
               <div className="bg-black/60 rounded-xl p-1.5 border border-purple-500/20">
@@ -1213,17 +1303,27 @@ export const VitalLensModal: React.FC<VitalLensModalProps> = ({
             </div>
 
             {cameraError ? (
-              <div className="p-6 my-auto bg-red-950/40 border border-red-500/50 rounded-2xl max-w-md space-y-3">
+              <div className="p-6 my-auto bg-red-950/40 border border-red-500/50 rounded-2xl max-w-md space-y-3.5 text-center">
                 <AlertTriangle className="w-10 h-10 text-red-400 mx-auto" />
                 <h4 className="font-bold text-sm text-red-200">Camera Permission Required</h4>
                 <p className="text-xs text-slate-300 leading-relaxed">{cameraError}</p>
-                <button
-                  type="button"
-                  onClick={() => startCamera()}
-                  className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs font-bold cursor-pointer"
-                >
-                  Retry Camera Access
-                </button>
+                <div className="flex flex-col sm:flex-row items-center justify-center gap-2.5 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => startCamera()}
+                    className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs font-bold cursor-pointer transition-colors"
+                  >
+                    Retry Camera Access
+                  </button>
+                  <button
+                    type="button"
+                    onClick={startSimulatedScan}
+                    className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-gradient-to-r from-purple-600 to-teal-500 hover:brightness-110 text-white text-xs font-bold cursor-pointer transition-all shadow-md flex items-center justify-center gap-1.5"
+                  >
+                    <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+                    <span>Run Simulated Scan</span>
+                  </button>
+                </div>
               </div>
             ) : (
               <div className="relative w-full max-w-[420px] aspect-[4/3] rounded-3xl overflow-hidden border-2 border-purple-500/50 shadow-2xl bg-black my-1">
@@ -1704,6 +1804,23 @@ export const VitalLensModal: React.FC<VitalLensModalProps> = ({
                   <span className="text-[10px] text-teal-200 mt-1 font-medium bg-teal-950/60 px-2 py-0.5 rounded-full border border-teal-400/30">
                     Patient / Family Scan
                   </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={startSimulatedScan}
+                  className="sm:col-span-2 flex items-center justify-between p-3.5 rounded-2xl bg-gradient-to-r from-slate-900 via-purple-950/50 to-teal-950/50 hover:from-purple-950 hover:to-teal-950 border border-purple-500/40 hover:border-purple-300 text-white transition-all cursor-pointer group shadow-sm active:scale-98 text-left"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-xl bg-purple-500/20 text-purple-300 flex items-center justify-center shrink-0 border border-purple-400/30">
+                      <Sparkles className="w-4 h-4 text-amber-300" />
+                    </div>
+                    <div>
+                      <span className="font-bold text-xs text-white block">Run Simulated Optical Scan</span>
+                      <span className="text-[10px] text-slate-400 block">No camera or browser permission required · Instant clinical simulation</span>
+                    </div>
+                  </div>
+                  <ChevronRight className="w-4 h-4 text-purple-400 group-hover:translate-x-0.5 transition-transform shrink-0" />
                 </button>
               </div>
 

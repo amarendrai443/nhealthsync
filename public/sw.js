@@ -1,5 +1,5 @@
 // Lightweight service worker for PWA offline readiness and installability
-const CACHE_NAME = 'nhealth-pwa-v1';
+const CACHE_NAME = 'nhealth-pwa-v2';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
@@ -33,7 +33,27 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
-  // Navigation requests: Stale-while-revalidate or NetworkFirst
+  // Non-GET requests should bypass caching
+  if (event.request.method !== 'GET') {
+    return;
+  }
+
+  const url = new URL(event.request.url);
+
+  // STRICT BYPASS: Never intercept or cache node_modules, Vite dev server modules, versioned scripts (?v=), or API calls
+  if (
+    url.pathname.includes('/node_modules/') ||
+    url.pathname.startsWith('/@') ||
+    url.searchParams.has('v') ||
+    url.search.includes('v=') ||
+    url.pathname.startsWith('/api/') ||
+    url.hostname === 'localhost' ||
+    url.port === '3000'
+  ) {
+    return;
+  }
+
+  // Navigation requests: NetworkFirst with offline fallback
   if (event.request.mode === 'navigate') {
     event.respondWith(
       fetch(event.request).catch(() => caches.match('/'))
@@ -41,22 +61,10 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Non-GET requests should bypass caching
-  if (event.request.method !== 'GET') {
-    return;
-  }
-
+  // Static assets matching cache
   event.respondWith(
     caches.match(event.request).then((cachedResponse) => {
       if (cachedResponse) {
-        // Fetch in background to update cache
-        fetch(event.request).then((networkResponse) => {
-          if (networkResponse && networkResponse.status === 200) {
-            caches.open(CACHE_NAME).then((cache) => {
-              cache.put(event.request, networkResponse);
-            });
-          }
-        }).catch(() => {});
         return cachedResponse;
       }
       return fetch(event.request);
