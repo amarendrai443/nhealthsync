@@ -89,6 +89,17 @@ import {
   resetStoredBanners,
   DEFAULT_BANNERS
 } from '../utils/advertisingStorage';
+import {
+  GridTabItem,
+  GridTabSectionType,
+  getStoredGridTabs,
+  saveStoredGridTabs,
+  addStoredGridTab,
+  updateStoredGridTab,
+  deleteStoredGridTab,
+  resetStoredGridTabs,
+  DEFAULT_GRID_TABS
+} from '../utils/gridTabsStorage';
 
 interface AdminDashboardPageProps {
   partners: PartnerApplication[];
@@ -285,6 +296,139 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
       return navHistory.pushModal('admin-revocation-modal', 'Revocation Review', () => setReviewingRevocationPartner(null));
     }
   }, [reviewingRevocationPartner]);
+
+  // 4. Interactive Grid Tab Management State & CRUD Handlers (Dual Sections 1 & 2)
+  const [adminGridTabSection, setAdminGridTabSection] = useState<GridTabSectionType>('section1');
+  const [gridTabs, setGridTabs] = useState<GridTabItem[]>(getStoredGridTabs);
+  const [isGridTabModalOpen, setIsGridTabModalOpen] = useState(false);
+  const [editingGridTabId, setEditingGridTabId] = useState<string | null>(null);
+  const [gridTabForm, setGridTabForm] = useState<Partial<GridTabItem>>({});
+  const [gridTabUploadError, setGridTabUploadError] = useState<string | null>(null);
+  const [gridTabImagePreview, setGridTabImagePreview] = useState<string>('');
+  const [deletingGridTab, setDeletingGridTab] = useState<GridTabItem | null>(null);
+  const gridTabFileInputRef = React.useRef<HTMLInputElement | null>(null);
+
+  // Sync grid tabs across browser tabs & events
+  React.useEffect(() => {
+    const handleTabsSync = () => setGridTabs(getStoredGridTabs());
+    window.addEventListener('nhealth_grid_tabs_updated', handleTabsSync);
+    return () => window.removeEventListener('nhealth_grid_tabs_updated', handleTabsSync);
+  }, []);
+
+  React.useEffect(() => {
+    if (isGridTabModalOpen) {
+      return navHistory.pushModal('admin-grid-tab-modal', 'Grid Tab Editor', () => setIsGridTabModalOpen(false));
+    }
+  }, [isGridTabModalOpen]);
+
+  React.useEffect(() => {
+    if (deletingGridTab) {
+      return navHistory.pushModal('admin-delete-grid-tab-modal', 'Delete Grid Tab', () => setDeletingGridTab(null));
+    }
+  }, [deletingGridTab]);
+
+  const handleGridTabFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setGridTabUploadError(null);
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      setGridTabUploadError('Please select a valid image file (PNG, JPG, WebP).');
+      return;
+    }
+    if (file.size > 4 * 1024 * 1024) {
+      setGridTabUploadError('Image exceeds 4MB limit.');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result as string;
+      setGridTabImagePreview(result);
+      setGridTabForm((prev) => ({ ...prev, imageUrl: result }));
+      showToast('✓ Custom Tab banner image loaded.');
+    };
+    reader.onerror = () => setGridTabUploadError('Failed to read image file.');
+    reader.readAsDataURL(file);
+  };
+
+  const handleOpenAddGridTab = (targetSec?: GridTabSectionType) => {
+    const sec = targetSec || adminGridTabSection;
+    setEditingGridTabId(null);
+    setGridTabForm({
+      section: sec,
+      title: '',
+      imageUrl: '',
+      targetLink: 'Doctor home visits',
+      badge: '',
+      isActive: true,
+      order: gridTabs.filter((t) => t.section === sec).length + 1,
+    });
+    setGridTabImagePreview('');
+    setGridTabUploadError(null);
+    setIsGridTabModalOpen(true);
+  };
+
+  const handleOpenEditGridTab = (tab: GridTabItem) => {
+    setEditingGridTabId(tab.id);
+    setGridTabForm({ ...tab });
+    setGridTabImagePreview(tab.imageUrl || '');
+    setGridTabUploadError(null);
+    setIsGridTabModalOpen(true);
+  };
+
+  const handleSaveGridTab = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!gridTabForm.title?.trim()) {
+      setGridTabUploadError('Please provide a tab title.');
+      return;
+    }
+    const sec = gridTabForm.section || adminGridTabSection;
+    if (editingGridTabId) {
+      updateStoredGridTab(editingGridTabId, {
+        title: gridTabForm.title.trim(),
+        section: sec,
+        targetLink: gridTabForm.targetLink?.trim() || 'overview',
+        badge: gridTabForm.badge?.trim() || undefined,
+        imageUrl: gridTabForm.imageUrl || '',
+        isActive: gridTabForm.isActive ?? true,
+      });
+      showToast('✓ Grid Tab updated successfully.');
+    } else {
+      addStoredGridTab({
+        title: gridTabForm.title.trim(),
+        section: sec,
+        targetLink: gridTabForm.targetLink?.trim() || 'overview',
+        badge: gridTabForm.badge?.trim() || undefined,
+        imageUrl: gridTabForm.imageUrl || '',
+        isActive: gridTabForm.isActive ?? true,
+        order: gridTabForm.order || (gridTabs.filter((t) => t.section === sec).length + 1),
+      });
+      showToast('✓ New Grid Tab added successfully.');
+    }
+    setGridTabs(getStoredGridTabs());
+    setIsGridTabModalOpen(false);
+  };
+
+  const handleToggleGridTabActive = (tab: GridTabItem) => {
+    updateStoredGridTab(tab.id, { isActive: !tab.isActive });
+    setGridTabs(getStoredGridTabs());
+    showToast(`✓ Tab "${tab.title}" is now ${!tab.isActive ? 'Active' : 'Inactive'}.`);
+  };
+
+  const handleDeleteGridTabConfirm = () => {
+    if (!deletingGridTab) return;
+    deleteStoredGridTab(deletingGridTab.id);
+    setGridTabs(getStoredGridTabs());
+    showToast(`✓ Grid Tab "${deletingGridTab.title}" deleted.`);
+    setDeletingGridTab(null);
+  };
+
+  const handleResetGridTabs = () => {
+    if (window.confirm('Reset all Grid Tabs to default configuration?')) {
+      resetStoredGridTabs();
+      setGridTabs(getStoredGridTabs());
+      showToast('✓ Grid Tabs reset to defaults.');
+    }
+  };
 
   // Sync banners across browser tabs & events
   React.useEffect(() => {
@@ -2122,6 +2266,196 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
               );
             })()}
 
+            {/* ============================================================== */}
+            {/* DUAL GRID TABS MANAGEMENT SECTION (SECTION 1 & SECTION 2) */}
+            {/* ============================================================== */}
+            {(() => {
+              const currentSectionTabs = gridTabs.filter((t) => t.section === adminGridTabSection);
+              const section1Tabs = gridTabs.filter((t) => t.section === 'section1');
+              const section2Tabs = gridTabs.filter((t) => t.section === 'section2');
+
+              return (
+                <div className="bg-white rounded-2xl sm:rounded-3xl border border-slate-200/90 shadow-2xs overflow-hidden space-y-5 p-5 sm:p-6 mt-6">
+                  {/* Header */}
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-4">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="w-2.5 h-2.5 rounded-full bg-teal-500 animate-pulse" />
+                        <h3 className="text-base sm:text-lg font-black text-slate-900 tracking-tight">
+                          Dual Grid Tabs Management (2:2 Aspect Ratio)
+                        </h3>
+                        <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-teal-100 text-teal-800 border border-teal-300">
+                          Overview Sections 1 &amp; 2
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-500 mt-1">
+                        Configure interactive grid tabs (5x5 desktop, 3x3 mobile) placed directly below Banner Section 1 and Banner Section 2.
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={handleResetGridTabs}
+                        className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs transition-colors cursor-pointer"
+                      >
+                        Reset Defaults
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleOpenAddGridTab(adminGridTabSection)}
+                        className="px-4 py-2 rounded-xl bg-gradient-to-r from-teal-600 to-cyan-600 hover:from-teal-500 hover:to-cyan-500 text-white font-black text-xs shadow-md shadow-teal-900/20 active:scale-95 transition-all cursor-pointer flex items-center gap-1.5"
+                      >
+                        <Plus className="w-4 h-4" />
+                        <span>+ Add Grid Tab</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Section Switcher Tabs: Section 1 (Below Banner 1) vs Section 2 (Below Banner 2) */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setAdminGridTabSection('section1')}
+                      className={`p-3.5 rounded-2xl border text-left transition-all cursor-pointer flex items-center justify-between ${
+                        adminGridTabSection === 'section1'
+                          ? 'bg-teal-50/70 border-teal-500 ring-2 ring-teal-500/20 shadow-xs'
+                          : 'bg-white border-slate-200 hover:border-slate-300'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <div className={`w-3 h-3 rounded-full ${adminGridTabSection === 'section1' ? 'bg-teal-600' : 'bg-slate-300'}`} />
+                        <div>
+                          <div className="text-xs font-bold text-slate-900">Grid Tabs Section 1</div>
+                          <div className="text-[10px] text-slate-500">Positioned directly below 1st Banner</div>
+                        </div>
+                      </div>
+                      <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-teal-200 text-teal-900">
+                        {section1Tabs.length} Tabs
+                      </span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setAdminGridTabSection('section2')}
+                      className={`p-3.5 rounded-2xl border text-left transition-all cursor-pointer flex items-center justify-between ${
+                        adminGridTabSection === 'section2'
+                          ? 'bg-teal-50/70 border-teal-500 ring-2 ring-teal-500/20 shadow-xs'
+                          : 'bg-white border-slate-200 hover:border-slate-300'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <div className={`w-3 h-3 rounded-full ${adminGridTabSection === 'section2' ? 'bg-teal-600' : 'bg-slate-300'}`} />
+                        <div>
+                          <div className="text-xs font-bold text-slate-900">Grid Tabs Section 2</div>
+                          <div className="text-[10px] text-slate-500">Positioned directly below 2nd Banner</div>
+                        </div>
+                      </div>
+                      <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-teal-200 text-teal-900">
+                        {section2Tabs.length} Tabs
+                      </span>
+                    </button>
+                  </div>
+
+                  {/* Tabs Registry Table */}
+                  {currentSectionTabs.length === 0 ? (
+                    <div className="text-center py-8 bg-slate-50 rounded-2xl border border-dashed border-slate-300 text-slate-500 text-xs">
+                      No grid tabs created for this section yet. Click "+ Add Grid Tab" to add one.
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto rounded-2xl border border-slate-200">
+                      <table className="w-full text-left border-collapse">
+                        <thead>
+                          <tr className="bg-slate-50 border-b border-slate-200 text-[11px] font-extrabold uppercase text-slate-500">
+                            <th className="py-3 px-3.5">Image (2:2)</th>
+                            <th className="py-3 px-3.5">Tab Title &amp; Badge</th>
+                            <th className="py-3 px-3.5">Target Route / Service</th>
+                            <th className="py-3 px-3.5 text-center">Status</th>
+                            <th className="py-3 px-3.5 text-right">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100 text-xs">
+                          {currentSectionTabs.map((tab) => (
+                            <tr key={tab.id} className="hover:bg-slate-50/70 transition-colors">
+                              <td className="py-3 px-3.5 w-16">
+                                <div className="w-12 h-12 rounded-xl overflow-hidden border border-slate-200 bg-slate-100 shrink-0 relative">
+                                  {tab.imageUrl ? (
+                                    <img
+                                      src={tab.imageUrl}
+                                      alt={tab.title}
+                                      className="w-full h-full object-cover"
+                                      onError={(e) => {
+                                        e.currentTarget.src =
+                                          'https://images.unsplash.com/photo-1576091160399-112ba8d25d1d?auto=format&fit=crop&w=400&q=80';
+                                      }}
+                                    />
+                                  ) : (
+                                    <div className="w-full h-full flex items-center justify-center text-slate-400">
+                                      <ImageIcon className="w-4 h-4" />
+                                    </div>
+                                  )}
+                                </div>
+                              </td>
+                              <td className="py-3 px-3.5">
+                                <div className="font-bold text-slate-800 text-xs sm:text-sm">
+                                  {tab.title}
+                                </div>
+                                {tab.badge && (
+                                  <span className="inline-block mt-0.5 text-[9px] font-black uppercase px-1.5 py-0.2 rounded bg-teal-100 text-teal-800">
+                                    {tab.badge}
+                                  </span>
+                                )}
+                              </td>
+                              <td className="py-3 px-3.5">
+                                <span className="font-mono text-[11px] bg-slate-100 px-2 py-0.5 rounded border border-slate-200 text-slate-700">
+                                  {tab.targetLink}
+                                </span>
+                              </td>
+                              <td className="py-3 px-3.5 text-center">
+                                <button
+                                  type="button"
+                                  onClick={() => handleToggleGridTabActive(tab)}
+                                  className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10.5px] font-bold border transition-colors cursor-pointer ${
+                                    tab.isActive
+                                      ? 'bg-emerald-50 text-emerald-700 border-emerald-300'
+                                      : 'bg-slate-100 text-slate-500 border-slate-300'
+                                  }`}
+                                >
+                                  <span className={`w-1.5 h-1.5 rounded-full ${tab.isActive ? 'bg-emerald-500' : 'bg-slate-400'}`} />
+                                  <span>{tab.isActive ? 'Active' : 'Inactive'}</span>
+                                </button>
+                              </td>
+                              <td className="py-3 px-3.5 text-right">
+                                <div className="flex items-center justify-end gap-1.5">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleOpenEditGridTab(tab)}
+                                    className="px-2.5 py-1.5 rounded-lg bg-teal-50 hover:bg-teal-100 text-teal-700 font-bold text-xs flex items-center gap-1 transition-colors cursor-pointer"
+                                    title="Edit Grid Tab"
+                                  >
+                                    <Edit className="w-3.5 h-3.5" />
+                                    <span>Edit</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setDeletingGridTab(tab)}
+                                    className="p-1.5 rounded-lg bg-red-50 hover:bg-red-100 text-red-600 transition-colors cursor-pointer"
+                                    title="Delete Grid Tab"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
             {/* ADD / EDIT BANNER MODAL */}
             {isBannerModalOpen && (
               <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto animate-fade-in">
@@ -2466,6 +2800,257 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
                       className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-bold cursor-pointer transition-colors"
                     >
                       Yes, Delete Permanently
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ADD / EDIT GRID TAB MODAL */}
+            {isGridTabModalOpen && (
+              <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto animate-fade-in">
+                <div className="bg-white rounded-3xl max-w-lg w-full p-5 sm:p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto border border-slate-200">
+                  {/* Modal Header */}
+                  <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                    <div className="flex items-center gap-2">
+                      <div className="w-8 h-8 rounded-xl bg-teal-100 text-teal-700 flex items-center justify-center">
+                        <ImageIcon className="w-4 h-4" />
+                      </div>
+                      <h4 className="text-base font-black text-slate-800">
+                        {editingGridTabId ? 'Edit Grid Tab' : 'Add New Grid Tab (2:2 Ratio)'}
+                      </h4>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setIsGridTabModalOpen(false)}
+                      className="text-slate-400 hover:text-slate-600 p-1 rounded-full hover:bg-slate-100 transition-colors"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  <form onSubmit={handleSaveGridTab} className="space-y-4 text-left">
+                    {/* Section Selector */}
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-bold text-slate-700">Grid Tab Section</label>
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setGridTabForm((prev) => ({ ...prev, section: 'section1' }))}
+                          className={`p-2.5 rounded-xl border text-xs font-bold transition-all ${
+                            (gridTabForm.section || adminGridTabSection) === 'section1'
+                              ? 'bg-teal-600 text-white border-teal-600 shadow-xs'
+                              : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                          }`}
+                        >
+                          Section 1 (Below 1st Banner)
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setGridTabForm((prev) => ({ ...prev, section: 'section2' }))}
+                          className={`p-2.5 rounded-xl border text-xs font-bold transition-all ${
+                            (gridTabForm.section || adminGridTabSection) === 'section2'
+                              ? 'bg-teal-600 text-white border-teal-600 shadow-xs'
+                              : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                          }`}
+                        >
+                          Section 2 (Below 2nd Banner)
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Tab Title */}
+                    <div className="space-y-1">
+                      <label className="text-xs font-bold text-slate-700">Tab Title *</label>
+                      <input
+                        type="text"
+                        required
+                        value={gridTabForm.title || ''}
+                        onChange={(e) => setGridTabForm((prev) => ({ ...prev, title: e.target.value }))}
+                        placeholder="e.g. Doctor Home Visits"
+                        className="w-full text-xs font-semibold px-3 py-2 rounded-xl border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-teal-500 text-slate-800"
+                      />
+                    </div>
+
+                    {/* Target Route / Destination */}
+                    <div className="space-y-1">
+                      <label className="text-xs font-bold text-slate-700">Target Route / Service Link *</label>
+                      <select
+                        value={gridTabForm.targetLink || 'Doctor home visits'}
+                        onChange={(e) => setGridTabForm((prev) => ({ ...prev, targetLink: e.target.value }))}
+                        className="w-full text-xs font-semibold px-3 py-2 rounded-xl border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-teal-500 text-slate-800"
+                      >
+                        <option value="Doctor home visits">Doctor home visits (Booking)</option>
+                        <option value="Home diagnostics & lab tests">Home diagnostics &amp; lab tests (Booking)</option>
+                        <option value="vital-lens">Vital Lens™ AI Camera Vitals</option>
+                        <option value="Specialized nursing care at home">Specialized nursing care at home</option>
+                        <option value="Physiotherapy & rehabilitation">Physiotherapy &amp; rehabilitation</option>
+                        <option value="Ambulance & medical transport">Ambulance &amp; medical transport</option>
+                        <option value="Medical equipment rental & sale">Medical equipment rental &amp; sale</option>
+                        <option value="Elderly geriatric home care">Elderly geriatric home care</option>
+                        <option value="Home vaccination services">Home vaccination services</option>
+                        <option value="quick-booking">Quick Booking Screen</option>
+                        <option value="records">My Records Vault</option>
+                        <option value="history">Service &amp; Booking History</option>
+                        <option value="invoices">Invoices &amp; Orders</option>
+                        <option value="rewards">Referral &amp; Care Wallet</option>
+                        <option value="help">Help &amp; Support</option>
+                      </select>
+                      <input
+                        type="text"
+                        value={gridTabForm.targetLink || ''}
+                        onChange={(e) => setGridTabForm((prev) => ({ ...prev, targetLink: e.target.value }))}
+                        placeholder="Or type custom route, tab ID, or URL (https://...)"
+                        className="w-full text-[11px] font-mono px-3 py-1.5 rounded-xl border border-slate-200 bg-slate-50 text-slate-700 mt-1"
+                      />
+                    </div>
+
+                    {/* Optional Badge */}
+                    <div className="space-y-1">
+                      <label className="text-xs font-bold text-slate-700">Badge Text (Optional)</label>
+                      <input
+                        type="text"
+                        value={gridTabForm.badge || ''}
+                        onChange={(e) => setGridTabForm((prev) => ({ ...prev, badge: e.target.value }))}
+                        placeholder="e.g. Verified, 45% Off, AI Camera, 24/7"
+                        className="w-full text-xs font-semibold px-3 py-2 rounded-xl border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-teal-500 text-slate-800"
+                      />
+                    </div>
+
+                    {/* Standard Image Uploader (2:2 Ratio) */}
+                    <div className="space-y-2 p-3.5 rounded-2xl bg-slate-50 border border-slate-200">
+                      <div className="flex items-center justify-between">
+                        <label className="text-xs font-black text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                          <Upload className="w-3.5 h-3.5 text-teal-600" />
+                          <span>Custom Tab Banner Image (2:2 Ratio)</span>
+                        </label>
+                        <span className="text-[10px] font-bold text-teal-700 bg-teal-100 px-2 py-0.5 rounded-full">
+                          Square 2:2 Ratio
+                        </span>
+                      </div>
+
+                      <div className="flex items-center gap-3">
+                        {/* 2:2 Preview */}
+                        <div className="w-20 h-20 rounded-xl overflow-hidden border-2 border-dashed border-slate-300 bg-white shrink-0 relative flex items-center justify-center">
+                          {gridTabImagePreview || gridTabForm.imageUrl ? (
+                            <img
+                              src={gridTabImagePreview || gridTabForm.imageUrl}
+                              alt="Tab Preview"
+                              className="w-full h-full object-cover"
+                            />
+                          ) : (
+                            <div className="text-center p-1 text-slate-400">
+                              <ImageIcon className="w-5 h-5 mx-auto opacity-50" />
+                              <span className="text-[9px] block font-semibold mt-0.5">2:2 Ratio</span>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* File selector input */}
+                        <div className="flex-1 space-y-1.5">
+                          <input
+                            ref={gridTabFileInputRef}
+                            type="file"
+                            accept="image/png,image/jpeg,image/webp,image/svg+xml"
+                            onChange={handleGridTabFileUpload}
+                            className="hidden"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => gridTabFileInputRef.current?.click()}
+                            className="w-full py-2 px-3 rounded-xl bg-white hover:bg-slate-100 border border-slate-300 text-slate-700 text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
+                          >
+                            <Upload className="w-3.5 h-3.5 text-teal-600" />
+                            <span>Upload Image (Max 4MB)</span>
+                          </button>
+                          <input
+                            type="url"
+                            value={gridTabForm.imageUrl || ''}
+                            onChange={(e) => {
+                              setGridTabForm((prev) => ({ ...prev, imageUrl: e.target.value }));
+                              setGridTabImagePreview(e.target.value);
+                            }}
+                            placeholder="Or paste external image URL..."
+                            className="w-full text-[11px] px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-700"
+                          />
+                        </div>
+                      </div>
+
+                      {gridTabUploadError && (
+                        <p className="text-[11px] text-red-600 font-semibold">{gridTabUploadError}</p>
+                      )}
+                    </div>
+
+                    {/* Active Status Toggle */}
+                    <div className="flex items-center justify-between p-3 rounded-xl bg-slate-50 border border-slate-200">
+                      <div>
+                        <span className="text-xs font-bold text-slate-800 block">Tab Active Status</span>
+                        <span className="text-[10px] text-slate-500">Show tab in Overview grid section</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setGridTabForm((prev) => ({ ...prev, isActive: !(prev.isActive ?? true) }))}
+                        className={`w-11 h-6 rounded-full transition-colors relative cursor-pointer ${
+                          (gridTabForm.isActive ?? true) ? 'bg-teal-600' : 'bg-slate-300'
+                        }`}
+                      >
+                        <span
+                          className={`w-4 h-4 rounded-full bg-white absolute top-1 transition-transform ${
+                            (gridTabForm.isActive ?? true) ? 'left-6' : 'left-1'
+                          }`}
+                        />
+                      </button>
+                    </div>
+
+                    {/* Actions */}
+                    <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+                      <button
+                        type="button"
+                        onClick={() => setIsGridTabModalOpen(false)}
+                        className="px-4 py-2 rounded-xl text-slate-600 hover:bg-slate-100 text-xs font-bold cursor-pointer"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="submit"
+                        className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-teal-600 to-cyan-600 hover:from-teal-500 hover:to-cyan-500 text-white font-black text-xs shadow-md transition-all cursor-pointer flex items-center gap-1.5"
+                      >
+                        <Check className="w-4 h-4" />
+                        <span>{editingGridTabId ? 'Save Changes' : 'Add Grid Tab'}</span>
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            )}
+
+            {/* DELETE GRID TAB CONFIRMATION MODAL */}
+            {deletingGridTab && (
+              <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-fade-in">
+                <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl space-y-4 border border-red-200 text-center">
+                  <div className="w-12 h-12 rounded-2xl bg-red-100 text-red-600 flex items-center justify-center mx-auto">
+                    <Trash2 className="w-6 h-6" />
+                  </div>
+                  <div className="space-y-1">
+                    <h4 className="text-base font-black text-slate-800">Delete Grid Tab?</h4>
+                    <p className="text-xs text-slate-500">
+                      Are you sure you want to permanently delete <strong>"{deletingGridTab.title}"</strong>? It will immediately disappear from the patient Overview grid.
+                    </p>
+                  </div>
+                  <div className="flex items-center justify-center gap-2 pt-2">
+                    <button
+                      type="button"
+                      onClick={() => setDeletingGridTab(null)}
+                      className="px-4 py-2 rounded-xl text-slate-600 hover:bg-slate-100 text-xs font-bold cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleDeleteGridTabConfirm}
+                      className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-bold cursor-pointer transition-colors"
+                    >
+                      Yes, Delete Tab
                     </button>
                   </div>
                 </div>

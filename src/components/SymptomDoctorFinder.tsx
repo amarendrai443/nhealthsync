@@ -222,7 +222,10 @@ export const SymptomDoctorFinder: React.FC<SymptomDoctorFinderProps> = ({
           VIEW 1: SEARCH BAR & HIGH-VISIBILITY CORPORATE HIGHLIGHTING (DEFAULT VIEW)
           ========================================================================= */}
       {!isResultsViewActive ? (
-        <div className="relative rounded-3xl p-4 sm:p-7 md:p-9 bg-gradient-to-br from-[#00172b] via-[#002742] to-[#003859] text-white shadow-2xl border-2 border-teal-500/40 overflow-hidden">
+        <div
+          style={{ aspectRatio: '4 / 1', minHeight: 'auto' }}
+          className="relative rounded-3xl p-4 sm:p-6 md:p-8 bg-gradient-to-br from-[#00172b] via-[#002742] to-[#003859] text-white shadow-2xl border-2 border-teal-500/40 overflow-hidden aspect-[4/1] flex flex-col justify-between"
+        >
           {/* Ambient high-tech background glow & subtle grid pattern */}
           <div className="absolute top-0 right-0 w-96 h-96 bg-teal-500/10 rounded-full blur-3xl pointer-events-none" />
           <div className="absolute bottom-0 left-0 w-80 h-80 bg-purple-500/10 rounded-full blur-3xl pointer-events-none" />
