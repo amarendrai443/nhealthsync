@@ -434,3 +434,12 @@ body {
   scrollbar-width: none;
 }
 
+/* Offers & Referrals strict 4:2 Mobile Aspect Ratio Frame (Mobile View Only) */
+@media (max-width: 639px) {
+  .mobile-offer-frame {
+    aspect-ratio: 4 / 2 !important;
+    width: 100% !important;
+    object-fit: cover !important;
+  }
+}
+

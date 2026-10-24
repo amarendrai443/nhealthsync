@@ -53,6 +53,7 @@ import { VitalMetricsResult, VitalLensUserData } from '../types/vitalLens';
 import { SymptomDoctorFinder } from './SymptomDoctorFinder';
 import { InteractiveGridTabs } from './InteractiveGridTabs';
 import { getStoredGridTabs, GridTabItem } from '../utils/gridTabsStorage';
+import { getStoredPromotions, PromotionItem } from '../utils/promotionsStorage';
 
 // Realistic vector wallet logo with multi-tone leather gradient, fine perimeter stitching, card slots & metallic snap clasp
 export const RealisticWalletLogo: React.FC<{ className?: string }> = ({ className = 'w-4 h-4' }) => (
@@ -551,6 +552,15 @@ export const PatientDashboardPage: React.FC<PatientDashboardPageProps> = ({
     const handleTabsSync = () => setGridTabs(getStoredGridTabs());
     window.addEventListener('nhealth_grid_tabs_updated', handleTabsSync);
     return () => window.removeEventListener('nhealth_grid_tabs_updated', handleTabsSync);
+  }, []);
+
+  // Synchronized Promotional Offers & Referrals (Managed via Admin Panel)
+  const [promotions, setPromotions] = useState<PromotionItem[]>(getStoredPromotions);
+
+  useEffect(() => {
+    const handlePromosSync = () => setPromotions(getStoredPromotions());
+    window.addEventListener('nhealth_promotions_updated', handlePromosSync);
+    return () => window.removeEventListener('nhealth_promotions_updated', handlePromosSync);
   }, []);
 
   // Light / Dark Theme Toggle (Light mode is default with clean white background)
@@ -1441,460 +1451,325 @@ export const PatientDashboardPage: React.FC<PatientDashboardPageProps> = ({
               </div>
 
               {/* HIGH-VISIBILITY OFFERS & REFERRALS SPOTLIGHT */}
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-5">
-                {/* 1. EXCLUSIVE LIMITED-TIME OFFERS CARD */}
-                <div
-                  className={`relative overflow-hidden rounded-2xl sm:rounded-3xl p-5 sm:p-6 border-2 transition-all duration-300 hover:scale-[1.01] ${
-                    isDark
-                      ? 'bg-gradient-to-br from-[#1c1204]/95 via-[#261505]/90 to-[#12080a]/95 border-amber-500/70 shadow-[0_0_28px_rgba(245,158,11,0.25)] ring-1 ring-amber-400/40 text-white'
-                      : 'bg-gradient-to-br from-amber-50/95 via-orange-50/70 to-rose-50/80 border-amber-400/90 shadow-[0_0_24px_rgba(251,191,36,0.3)] ring-1 ring-amber-400/50 text-slate-900'
-                  }`}
-                >
-                  {/* Decorative glowing gradient orb */}
-                  <div className="absolute -top-16 -right-16 w-36 h-36 bg-amber-500/20 rounded-full blur-2xl pointer-events-none" />
+              {(() => {
+                const activeOffers = promotions.filter((p) => p.isActive && p.type === 'offer');
+                const activeReferrals = promotions.filter((p) => p.isActive && p.type === 'referral');
+                const offer = activeOffers[0] || {
+                  title: 'Comprehensive Full Body Checkup Package',
+                  description: '72 vital bio-markers including CBC, Lipid Profile, Liver & Kidney Function, HbA1c & Thyroid with free home sample collection.',
+                  discount: 'FLAT 45% OFF',
+                  code: 'NHCARE45',
+                  badge: 'Special Patient Offer',
+                  price: '₹999',
+                  originalPrice: '₹1,800',
+                  ctaText: 'Claim 45% Off Voucher',
+                  ctaLink: 'Comprehensive Full Body Checkup (45% OFF - ₹999)'
+                };
+                const referral = activeReferrals[0] || {
+                  title: 'Give ₹250, Get ₹250 Care Credits',
+                  description: 'Invite friends & family. They save ₹250 on their first doorstep service, and you receive ₹250 credited directly to your Nhealth Wallet.',
+                  discount: 'GIVE ₹250 • EARN ₹250',
+                  code: 'NH-HEALTH250',
+                  badge: 'Refer & Earn ₹250',
+                  ctaText: 'View Care Rewards & Wallet',
+                  ctaLink: 'rewards'
+                };
 
-                  <div className="relative z-10 flex flex-col justify-between h-full space-y-4">
-                    <div className="space-y-3">
-                      {/* Top Badges Row */}
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-gradient-to-r from-amber-500 via-orange-500 to-rose-500 text-white text-[11px] font-black uppercase tracking-wider shadow-md shadow-orange-500/25 animate-pulse">
-                          <Sparkles className="w-3.5 h-3.5" />
-                          <span>Special Patient Offer</span>
-                        </span>
-                        <span className="px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/40 text-[10px] font-black uppercase tracking-wide">
-                          FLAT 45% OFF
-                        </span>
-                      </div>
+                return (
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-5">
+                    {/* 1. EXCLUSIVE LIMITED-TIME OFFERS CARD (Strict 4:2 Aspect Ratio on Mobile View Only) */}
+                    <div
+                      style={{ width: '100%' }}
+                      className={`mobile-offer-frame relative overflow-hidden rounded-2xl sm:rounded-3xl p-3.5 sm:p-5 md:p-6 border-2 transition-all duration-300 hover:scale-[1.01] max-sm:aspect-[4/2] max-sm:w-full max-sm:object-cover sm:aspect-auto flex flex-col justify-between ${
+                        isDark
+                          ? 'bg-gradient-to-br from-[#1c1204]/95 via-[#261505]/90 to-[#12080a]/95 border-amber-500/70 shadow-[0_0_28px_rgba(245,158,11,0.25)] ring-1 ring-amber-400/40 text-white'
+                          : 'bg-gradient-to-br from-amber-50/95 via-orange-50/70 to-rose-50/80 border-amber-400/90 shadow-[0_0_24px_rgba(251,191,36,0.3)] ring-1 ring-amber-400/50 text-slate-900'
+                      }`}
+                    >
+                      {/* Decorative glowing gradient orb */}
+                      <div className="absolute -top-16 -right-16 w-36 h-36 bg-amber-500/20 rounded-full blur-2xl pointer-events-none" />
 
-                      {/* Headline & Offer Details */}
-                      <div>
-                        <h4 className={`text-lg sm:text-xl font-black tracking-tight leading-snug ${isDark ? 'text-white' : 'text-[#002b49]'}`}>
-                          Comprehensive Full Body Checkup Package
-                        </h4>
-                        <p className={`text-xs sm:text-sm mt-1 leading-relaxed ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>
-                          72 vital bio-markers including CBC, Lipid Profile, Liver &amp; Kidney Function, HbA1c &amp; Thyroid with free home sample collection.
-                        </p>
-                      </div>
+                      <div className="relative z-10 flex flex-col justify-between h-full space-y-2 sm:space-y-4">
+                        <div className="space-y-1.5 sm:space-y-3">
+                          {/* Top Badges Row */}
+                          <div className="flex flex-wrap items-center justify-between gap-1.5 sm:gap-2">
+                            <span className="inline-flex items-center gap-1 sm:gap-1.5 px-2.5 py-0.5 sm:px-3 sm:py-1 rounded-full bg-gradient-to-r from-amber-500 via-orange-500 to-rose-500 text-white text-[9px] sm:text-[11px] font-black uppercase tracking-wider shadow-md shadow-orange-500/25 animate-pulse">
+                              <Sparkles className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
+                              <span>{offer.badge || 'Special Patient Offer'}</span>
+                            </span>
+                            <span className="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/40 text-[9px] sm:text-[10px] font-black uppercase tracking-wide">
+                              {offer.discount || 'FLAT 45% OFF'}
+                            </span>
+                          </div>
 
-                      {/* Price Pill & Coupon Chip */}
-                      <div className="flex flex-wrap items-center gap-2.5 pt-1">
-                        <div className={`px-3 py-1.5 rounded-xl border flex items-center gap-2 ${
-                          isDark ? 'bg-black/40 border-amber-500/30 text-amber-300' : 'bg-white border-amber-300 text-amber-900'
-                        }`}>
-                          <span className="text-base sm:text-lg font-black text-amber-500 dark:text-amber-400">₹999</span>
-                          <span className="text-xs line-through opacity-60">₹1,800</span>
+                          {/* Headline & Offer Details */}
+                          <div>
+                            <h4 className={`text-sm sm:text-lg lg:text-xl font-black tracking-tight leading-snug line-clamp-1 sm:line-clamp-2 ${isDark ? 'text-white' : 'text-[#002b49]'}`}>
+                              {offer.title}
+                            </h4>
+                            <p className={`text-[10px] sm:text-xs mt-0.5 sm:mt-1 leading-relaxed line-clamp-1 sm:line-clamp-2 ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>
+                              {offer.description}
+                            </p>
+                          </div>
+
+                          {/* Price Pill & Coupon Chip */}
+                          <div className="flex flex-wrap items-center gap-1.5 sm:gap-2.5 pt-0.5 sm:pt-1">
+                            {offer.price && (
+                              <div className={`px-2 py-0.5 sm:px-3 sm:py-1 rounded-lg sm:rounded-xl border flex items-center gap-1.5 sm:gap-2 ${
+                                isDark ? 'bg-black/40 border-amber-500/30 text-amber-300' : 'bg-white border-amber-300 text-amber-900'
+                              }`}>
+                                <span className="text-xs sm:text-base font-black text-amber-500 dark:text-amber-400">{offer.price}</span>
+                                {offer.originalPrice && (
+                                  <span className="text-[10px] sm:text-xs line-through opacity-60">{offer.originalPrice}</span>
+                                )}
+                              </div>
+                            )}
+                            {offer.code && (
+                              <div className={`px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-lg sm:rounded-xl border text-[10px] sm:text-[11px] font-mono font-bold flex items-center gap-1 ${
+                                isDark ? 'bg-amber-950/40 border-amber-600/40 text-amber-300' : 'bg-amber-100/70 border-amber-300 text-amber-800'
+                              }`}>
+                                <span>Code:</span>
+                                <span className="underline decoration-amber-500 font-black">{offer.code}</span>
+                              </div>
+                            )}
+                          </div>
                         </div>
-                        <div className={`px-2.5 py-1.5 rounded-xl border text-[11px] font-mono font-bold flex items-center gap-1.5 ${
-                          isDark ? 'bg-amber-950/40 border-amber-600/40 text-amber-300' : 'bg-amber-100/70 border-amber-300 text-amber-800'
-                        }`}>
-                          <span>Coupon:</span>
-                          <span className="underline decoration-amber-500 font-black">NHCARE45</span>
-                        </div>
-                      </div>
-                    </div>
 
-                    {/* CTA Buttons Row */}
-                    <div className="pt-2 flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (onOpenBookingModal) {
-                            onOpenBookingModal('Comprehensive Full Body Checkup (45% OFF - ₹999)');
-                          } else {
-                            handleSelectTab('quick-booking');
-                          }
-                        }}
-                        className="flex-1 py-2.5 px-4 rounded-xl bg-gradient-to-r from-amber-500 via-orange-500 to-rose-500 hover:brightness-110 active:scale-95 text-white font-black text-xs sm:text-sm shadow-lg shadow-orange-500/30 transition-all cursor-pointer flex items-center justify-center gap-2"
-                      >
-                        <span>Claim 45% Off Voucher</span>
-                        <ArrowRight className="w-4 h-4" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleSelectTab('quick-booking')}
-                        className={`py-2.5 px-3.5 rounded-xl border text-xs font-bold transition-colors cursor-pointer text-center ${
-                          isDark
-                            ? 'border-amber-500/40 hover:bg-amber-500/10 text-amber-300'
-                            : 'border-amber-300 hover:bg-amber-100/60 text-amber-900'
-                        }`}
-                      >
-                        Explore 16+ Offers
-                      </button>
-                    </div>
-                  </div>
-                </div>
-
-                {/* 2. REFER & EARN CARE CREDITS CARD */}
-                <div
-                  className={`relative overflow-hidden rounded-2xl sm:rounded-3xl p-5 sm:p-6 border-2 transition-all duration-300 hover:scale-[1.01] ${
-                    isDark
-                      ? 'bg-gradient-to-br from-[#022119]/95 via-[#032a26]/90 to-[#021824]/95 border-emerald-500/70 shadow-[0_0_28px_rgba(16,185,129,0.25)] ring-1 ring-emerald-400/40 text-white'
-                      : 'bg-gradient-to-br from-emerald-50/95 via-teal-50/70 to-cyan-50/80 border-emerald-400/90 shadow-[0_0_24px_rgba(16,185,129,0.3)] ring-1 ring-emerald-400/50 text-slate-900'
-                  }`}
-                >
-                  {/* Decorative glowing gradient orb */}
-                  <div className="absolute -top-16 -right-16 w-36 h-36 bg-emerald-500/20 rounded-full blur-2xl pointer-events-none" />
-
-                  <div className="relative z-10 flex flex-col justify-between h-full space-y-4">
-                    <div className="space-y-3">
-                      {/* Top Badges Row */}
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-gradient-to-r from-emerald-600 to-teal-500 text-white text-[11px] font-black uppercase tracking-wider shadow-md shadow-emerald-600/25 animate-pulse">
-                          <Gift className="w-3.5 h-3.5" />
-                          <span>Refer &amp; Earn ₹250</span>
-                        </span>
-                        <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border border-emerald-500/40 text-[10px] font-black uppercase tracking-wide">
-                          Instant Wallet Credit
-                        </span>
-                      </div>
-
-                      {/* Headline & Referral Description */}
-                      <div>
-                        <h4 className={`text-lg sm:text-xl font-black tracking-tight leading-snug ${isDark ? 'text-white' : 'text-[#002b49]'}`}>
-                          Give ₹250, Get ₹250 Care Credits
-                        </h4>
-                        <p className={`text-xs sm:text-sm mt-1 leading-relaxed ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>
-                          Invite friends &amp; family. They save ₹250 on their first doorstep service, and you receive ₹250 credited directly to your Nhealth Wallet.
-                        </p>
-                      </div>
-
-                      {/* Interactive Code Box */}
-                      <div className={`p-3 rounded-xl border flex items-center justify-between gap-3 ${
-                        isDark ? 'bg-black/40 border-emerald-500/30' : 'bg-white border-emerald-300'
-                      }`}>
-                        <div className="min-w-0">
-                          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Your Personal Code</span>
-                          <span className="text-base sm:text-lg font-black font-mono tracking-wider text-emerald-600 dark:text-emerald-400">
-                            NH-HEALTH250
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-1.5 shrink-0">
+                        {/* CTA Buttons Row */}
+                        <div className="pt-1 sm:pt-2 flex flex-row items-center gap-2">
                           <button
                             type="button"
                             onClick={() => {
-                              navigator.clipboard?.writeText('NH-HEALTH250');
-                              setReferralCopied(true);
-                              setTimeout(() => setReferralCopied(false), 2500);
+                              if (onOpenBookingModal) {
+                                onOpenBookingModal(offer.ctaLink || offer.title);
+                              } else {
+                                handleSelectTab('quick-booking');
+                              }
                             }}
-                            className="py-1.5 px-3 rounded-lg bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white text-xs font-bold transition-all flex items-center gap-1 cursor-pointer"
+                            className="flex-1 py-1.5 sm:py-2.5 px-3 sm:px-4 rounded-lg sm:rounded-xl bg-gradient-to-r from-amber-500 via-orange-500 to-rose-500 hover:brightness-110 active:scale-95 text-white font-black text-[11px] sm:text-xs shadow-md shadow-orange-500/30 transition-all cursor-pointer flex items-center justify-center gap-1.5"
                           >
-                            <Copy className="w-3.5 h-3.5" />
-                            <span>{referralCopied ? 'Copied!' : 'Copy'}</span>
+                            <span>{offer.ctaText || 'Claim 45% Off Voucher'}</span>
+                            <ArrowRight className="w-3.5 h-3.5" />
                           </button>
-                          <a
-                            href="https://wa.me/?text=Use%20my%20Nhealth%20referral%20code%20NH-HEALTH250%20for%20%E2%82%B9250%20OFF%20doorstep%20doctor%20home%20visits%20and%20diagnostic%20lab%20tests%20at%20home%3A%20https%3A%2F%2Fnhealth.in"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="p-1.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-700 dark:text-emerald-300 border border-emerald-500/40 transition-colors cursor-pointer"
-                            title="Share on WhatsApp"
+                          <button
+                            type="button"
+                            onClick={() => handleSelectTab('quick-booking')}
+                            className={`py-1.5 sm:py-2.5 px-2.5 sm:px-3.5 rounded-lg sm:rounded-xl border text-[10px] sm:text-xs font-bold transition-colors cursor-pointer text-center shrink-0 ${
+                              isDark
+                                ? 'border-amber-500/40 hover:bg-amber-500/10 text-amber-300'
+                                : 'border-amber-300 hover:bg-amber-100/60 text-amber-900'
+                            }`}
                           >
-                            <Share2 className="w-4 h-4" />
-                          </a>
+                            Explore 16+ Offers
+                          </button>
                         </div>
                       </div>
                     </div>
 
-                    {/* CTA Buttons Row */}
-                    <div className="pt-2 flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
-                      <button
-                        type="button"
-                        onClick={() => handleSelectTab('rewards')}
-                        className="flex-1 py-2.5 px-4 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:brightness-110 active:scale-95 text-white font-black text-xs sm:text-sm shadow-lg shadow-emerald-600/30 transition-all cursor-pointer flex items-center justify-center gap-2"
-                      >
-                        <span>View Care Rewards &amp; Wallet</span>
-                        <ArrowRight className="w-4 h-4" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setWalletOpen(true)}
-                        className={`py-2.5 px-3.5 rounded-xl border text-xs font-bold transition-colors cursor-pointer text-center ${
-                          isDark
-                            ? 'border-emerald-500/40 hover:bg-emerald-500/10 text-emerald-300'
-                            : 'border-emerald-300 hover:bg-emerald-100/60 text-emerald-900'
-                        }`}
-                      >
-                        Wallet: ₹{walletBalance}
-                      </button>
+                    {/* 2. REFER & EARN CARE CREDITS CARD (Strict 4:2 Aspect Ratio on Mobile View Only) */}
+                    <div
+                      style={{ width: '100%' }}
+                      className={`mobile-offer-frame relative overflow-hidden rounded-2xl sm:rounded-3xl p-3.5 sm:p-5 md:p-6 border-2 transition-all duration-300 hover:scale-[1.01] max-sm:aspect-[4/2] max-sm:w-full max-sm:object-cover sm:aspect-auto flex flex-col justify-between ${
+                        isDark
+                          ? 'bg-gradient-to-br from-[#022119]/95 via-[#032a26]/90 to-[#021824]/95 border-emerald-500/70 shadow-[0_0_28px_rgba(16,185,129,0.25)] ring-1 ring-emerald-400/40 text-white'
+                          : 'bg-gradient-to-br from-emerald-50/95 via-teal-50/70 to-cyan-50/80 border-emerald-400/90 shadow-[0_0_24px_rgba(16,185,129,0.3)] ring-1 ring-emerald-400/50 text-slate-900'
+                      }`}
+                    >
+                      {/* Decorative glowing gradient orb */}
+                      <div className="absolute -top-16 -right-16 w-36 h-36 bg-emerald-500/20 rounded-full blur-2xl pointer-events-none" />
+
+                      <div className="relative z-10 flex flex-col justify-between h-full space-y-2 sm:space-y-4">
+                        <div className="space-y-1.5 sm:space-y-3">
+                          {/* Top Badges Row */}
+                          <div className="flex flex-wrap items-center justify-between gap-1.5 sm:gap-2">
+                            <span className="inline-flex items-center gap-1 sm:gap-1.5 px-2.5 py-0.5 sm:px-3 sm:py-1 rounded-full bg-gradient-to-r from-emerald-600 to-teal-500 text-white text-[9px] sm:text-[11px] font-black uppercase tracking-wider shadow-md shadow-emerald-600/25 animate-pulse">
+                              <Gift className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
+                              <span>{referral.badge || 'Refer & Earn ₹250'}</span>
+                            </span>
+                            <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border border-emerald-500/40 text-[9px] sm:text-[10px] font-black uppercase tracking-wide">
+                              {referral.discount || 'Instant Wallet Credit'}
+                            </span>
+                          </div>
+
+                          {/* Headline & Referral Description */}
+                          <div>
+                            <h4 className={`text-sm sm:text-lg lg:text-xl font-black tracking-tight leading-snug line-clamp-1 sm:line-clamp-2 ${isDark ? 'text-white' : 'text-[#002b49]'}`}>
+                              {referral.title}
+                            </h4>
+                            <p className={`text-[10px] sm:text-xs mt-0.5 sm:mt-1 leading-relaxed line-clamp-1 sm:line-clamp-2 ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>
+                              {referral.description}
+                            </p>
+                          </div>
+
+                          {/* Interactive Code Box */}
+                          <div className={`p-2 sm:p-2.5 rounded-xl border flex items-center justify-between gap-2 ${
+                            isDark ? 'bg-black/40 border-emerald-500/30' : 'bg-white border-emerald-300'
+                          }`}>
+                            <div className="min-w-0">
+                              <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 block hidden xs:block">Your Referral Code</span>
+                              <span className="text-xs sm:text-base font-black font-mono tracking-wider text-emerald-600 dark:text-emerald-400">
+                                {referral.code || 'NH-HEALTH250'}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-1 shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  navigator.clipboard?.writeText(referral.code || 'NH-HEALTH250');
+                                  setReferralCopied(true);
+                                  setTimeout(() => setReferralCopied(false), 2500);
+                                }}
+                                className="py-1 px-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white text-[11px] font-bold transition-all flex items-center gap-1 cursor-pointer"
+                              >
+                                <Copy className="w-3 h-3" />
+                                <span>{referralCopied ? 'Copied!' : 'Copy'}</span>
+                              </button>
+                              <a
+                                href={`https://wa.me/?text=Use%20my%20Nhealth%20referral%20code%20${encodeURIComponent(referral.code || 'NH-HEALTH250')}%20for%20%E2%82%B9250%20OFF%20doorstep%20doctor%20home%20visits%20and%20diagnostic%20lab%20tests%20at%20home%3A%20https%3A%2F%2Fnhealth.in`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="p-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-700 dark:text-emerald-300 border border-emerald-500/40 transition-colors cursor-pointer"
+                                title="Share on WhatsApp"
+                              >
+                                <Share2 className="w-3.5 h-3.5" />
+                              </a>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* CTA Buttons Row */}
+                        <div className="pt-1 sm:pt-2 flex flex-row items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => handleSelectTab('rewards')}
+                            className="flex-1 py-1.5 sm:py-2.5 px-3 sm:px-4 rounded-lg sm:rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:brightness-110 active:scale-95 text-white font-black text-[11px] sm:text-xs shadow-md shadow-emerald-600/30 transition-all cursor-pointer flex items-center justify-center gap-1.5"
+                          >
+                            <span>{referral.ctaText || 'View Care Rewards & Wallet'}</span>
+                            <ArrowRight className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setWalletOpen(true)}
+                            className={`py-1.5 sm:py-2.5 px-2.5 sm:px-3.5 rounded-lg sm:rounded-xl border text-[10px] sm:text-xs font-bold transition-colors cursor-pointer text-center shrink-0 ${
+                              isDark
+                                ? 'border-emerald-500/40 hover:bg-emerald-500/10 text-emerald-300'
+                                : 'border-emerald-300 hover:bg-emerald-100/60 text-emerald-900'
+                            }`}
+                          >
+                            Wallet: ₹{walletBalance}
+                          </button>
+                        </div>
+                      </div>
                     </div>
                   </div>
-                </div>
-              </div>
+                );
+              })()}
 
-              {/* Two Column Grid: Upcoming Schedule & Vitals Highlights */}
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                {/* Left 2 Cols: Next Scheduled Appointment */}
-                <div className={`lg:col-span-2 p-5 sm:p-6 rounded-2xl border shadow-xs space-y-4 ${
-                  isDark ? 'bg-[#00172d] border-cyan-900/40 text-white shadow-xl' : 'bg-white border-slate-200 text-slate-800'
-                }`}>
-                  <div className="flex items-center justify-between">
-                    <h3 className={`text-base font-bold flex items-center gap-2 ${isDark ? 'text-white' : 'text-[#002b49]'}`}>
-                      <Clock className="w-4 h-4 text-cyan-500" />
-                      <span>Next Scheduled Doorstep Service</span>
-                    </h3>
+              {/* Next Scheduled Doorstep Service Section */}
+              <div className={`p-4 sm:p-6 rounded-2xl border shadow-xs space-y-4 w-full ${
+                isDark ? 'bg-[#00172d] border-cyan-900/40 text-white shadow-xl' : 'bg-white border-slate-200 text-slate-800'
+              }`}>
+                <div className="flex items-center justify-between">
+                  <h3 className={`text-sm sm:text-base font-bold flex items-center gap-2 ${isDark ? 'text-white' : 'text-[#002b49]'}`}>
+                    <Clock className="w-4 h-4 text-cyan-500" />
+                    <span>Next Scheduled Doorstep Service</span>
+                  </h3>
+                  <button
+                    type="button"
+                    onClick={() => handleSelectTab('history')}
+                    className="text-xs text-[#008080] dark:text-cyan-400 hover:underline font-semibold cursor-pointer"
+                  >
+                    View All
+                  </button>
+                </div>
+
+                {bookingHistory.length > 0 ? (
+                  <div
+                    className={`p-4 sm:p-5 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3.5 sm:gap-4 w-full ${
+                      isDark ? 'bg-cyan-950/40 border-cyan-800/40' : 'bg-teal-50/60 border-teal-200'
+                    }`}
+                  >
+                    <div className="space-y-1.5 min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30">
+                          {bookingHistory[0].status}
+                        </span>
+                        <span className={`text-[11px] font-mono ${isDark ? 'text-cyan-300' : 'text-teal-700'}`}>
+                          Ref: {bookingHistory[0].referenceId}
+                        </span>
+                      </div>
+                      <div className={`text-sm sm:text-base font-bold ${isDark ? 'text-white' : 'text-[#002b49]'}`}>
+                        {bookingHistory[0].serviceName}
+                      </div>
+                      <div className={`text-xs flex flex-wrap items-center gap-2 ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>
+                        <span>Patient: <strong>{bookingHistory[0].patientName}</strong></span>
+                        {bookingHistory[0].preferredDate && (
+                          <>
+                            <span>·</span>
+                            <span>{bookingHistory[0].preferredDate} ({bookingHistory[0].preferredTimeSlot || 'Confirmed Time'})</span>
+                          </>
+                        )}
+                      </div>
+                    </div>
                     <button
                       type="button"
                       onClick={() => handleSelectTab('history')}
-                      className="text-xs text-[#008080] dark:text-cyan-400 hover:underline font-semibold cursor-pointer"
+                      className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-[#008080] hover:bg-[#006666] text-white font-bold text-xs sm:text-sm cursor-pointer shrink-0 transition-transform active:scale-95 text-center shadow-xs"
                     >
-                      View All
+                      Track Specialist
                     </button>
                   </div>
-
-                  {bookingHistory.length > 0 ? (
-                    <div
-                      style={{ aspectRatio: '3 / 1' }}
-                      className={`p-3.5 sm:p-4 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4 aspect-[3/1] w-full overflow-hidden ${
-                        isDark ? 'bg-cyan-950/40 border-cyan-800/40' : 'bg-teal-50/60 border-teal-200'
-                      }`}
-                    >
-                      <div className="space-y-0.5 sm:space-y-1 min-w-0">
-                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30">
-                          {bookingHistory[0].status}
-                        </span>
-                        <div className={`text-xs sm:text-sm font-bold pt-0.5 truncate ${isDark ? 'text-white' : 'text-[#002b49]'}`}>
-                          {bookingHistory[0].serviceName}
-                        </div>
-                        <div className={`text-[11px] sm:text-xs flex items-center gap-2 truncate ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>
-                          <span>Ref: {bookingHistory[0].referenceId}</span>
-                          <span>·</span>
-                          <span>{bookingHistory[0].patientName}</span>
-                        </div>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => handleSelectTab('history')}
-                        className="px-3.5 py-1.5 sm:px-4 sm:py-2 rounded-lg bg-[#008080] hover:bg-[#006666] text-white font-bold text-xs cursor-pointer shrink-0"
-                      >
-                        Track Specialist
-                      </button>
-                    </div>
-                  ) : (
-                    <div
-                      style={{ aspectRatio: '3 / 1' }}
-                      className={`p-3.5 sm:p-4 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4 aspect-[3/1] w-full overflow-hidden ${
-                        isDark ? 'bg-cyan-950/40 border-cyan-800/40' : 'bg-teal-50/60 border-teal-200'
-                      }`}
-                    >
-                      <div className="space-y-0.5 sm:space-y-1 min-w-0">
-                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-cyan-500/20 text-teal-800 dark:text-cyan-300 border border-cyan-500/30">
+                ) : (
+                  <div
+                    className={`p-4 sm:p-5 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3.5 sm:gap-4 w-full ${
+                      isDark ? 'bg-cyan-950/40 border-cyan-800/40' : 'bg-teal-50/60 border-teal-200'
+                    }`}
+                  >
+                    <div className="space-y-1.5 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-cyan-500/20 text-teal-800 dark:text-cyan-300 border border-cyan-500/30">
                           Scheduled Today, 03:00 PM
                         </span>
-                        <div className={`text-xs sm:text-sm font-bold pt-0.5 truncate ${isDark ? 'text-white' : 'text-[#002b49]'}`}>
-                          Home Diagnostics &amp; Blood Sample Collection
-                        </div>
-                        <div className={`text-[11px] sm:text-xs truncate ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>
-                          Phlebotomist: Anil Verma (Vaccinated, NABL certified)
-                        </div>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => handleSelectTab('quick-booking')}
-                        className="px-3.5 py-1.5 sm:px-4 sm:py-2 rounded-lg bg-[#008080] hover:bg-[#006666] text-white font-bold text-xs cursor-pointer shrink-0"
-                      >
-                        Book Another Service
-                      </button>
+                      <div className={`text-sm sm:text-base font-bold ${isDark ? 'text-white' : 'text-[#002b49]'}`}>
+                        Home Diagnostics &amp; Blood Sample Collection
+                      </div>
+                      <div className={`text-xs ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>
+                        Assigned Phlebotomist: <strong>Anil Verma</strong> (Vaccinated, NABL certified)
+                      </div>
                     </div>
-                  )}
-
-                  {/* Instant Healthcare Dispatch: 3x3 Grid Layout */}
-                  <div className="pt-2">
-                    <span className={`text-xs font-bold uppercase tracking-wider block mb-2.5 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
-                      Instant Healthcare Dispatch (3x3 Grid)
-                    </span>
-                    <div className="grid grid-cols-3 gap-2 sm:gap-2.5">
-                      <button
-                        type="button"
-                        onClick={() => handleServiceClick('Doctor home visits')}
-                        className={`p-2.5 rounded-xl border text-left transition-colors cursor-pointer group ${
-                          isDark
-                            ? 'bg-white/5 hover:bg-white/10 border-cyan-900/40'
-                            : 'bg-slate-50 hover:bg-teal-50/50 border-slate-200'
-                        }`}
-                      >
-                        <Stethoscope className="w-4 h-4 text-cyan-500 group-hover:scale-110 transition-transform mb-1" />
-                        <div className={`text-[11px] sm:text-xs font-bold leading-tight ${isDark ? 'text-white' : 'text-[#002b49]'}`}>Doctor Visit</div>
-                        <div className={`text-[9px] sm:text-[10px] ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>At Home</div>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleServiceClick('Home diagnostics & lab tests')}
-                        className={`p-2.5 rounded-xl border text-left transition-colors cursor-pointer group ${
-                          isDark
-                            ? 'bg-white/5 hover:bg-white/10 border-cyan-900/40'
-                            : 'bg-slate-50 hover:bg-teal-50/50 border-slate-200'
-                        }`}
-                      >
-                        <TestTube2 className="w-4 h-4 text-teal-500 group-hover:scale-110 transition-transform mb-1" />
-                        <div className={`text-[11px] sm:text-xs font-bold leading-tight ${isDark ? 'text-white' : 'text-[#002b49]'}`}>Lab Tests</div>
-                        <div className={`text-[9px] sm:text-[10px] ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>Sample Pickup</div>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleServiceClick('Ambulance & medical transport')}
-                        className={`p-2.5 rounded-xl border text-left transition-colors cursor-pointer group ${
-                          isDark
-                            ? 'bg-white/5 hover:bg-white/10 border-cyan-900/40'
-                            : 'bg-slate-50 hover:bg-teal-50/50 border-slate-200'
-                        }`}
-                      >
-                        <Car className="w-4 h-4 text-red-500 group-hover:scale-110 transition-transform mb-1" />
-                        <div className={`text-[11px] sm:text-xs font-bold leading-tight ${isDark ? 'text-white' : 'text-[#002b49]'}`}>Ambulance</div>
-                        <div className={`text-[9px] sm:text-[10px] ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>Emergency SOS</div>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleServiceClick('Specialized nursing care at home')}
-                        className={`p-2.5 rounded-xl border text-left transition-colors cursor-pointer group ${
-                          isDark
-                            ? 'bg-white/5 hover:bg-white/10 border-cyan-900/40'
-                            : 'bg-slate-50 hover:bg-teal-50/50 border-slate-200'
-                        }`}
-                      >
-                        <HeartPulse className="w-4 h-4 text-purple-500 group-hover:scale-110 transition-transform mb-1" />
-                        <div className={`text-[11px] sm:text-xs font-bold leading-tight ${isDark ? 'text-white' : 'text-[#002b49]'}`}>Home Nurse</div>
-                        <div className={`text-[9px] sm:text-[10px] ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>Bedside Care</div>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleServiceClick('Physiotherapy & rehabilitation')}
-                        className={`p-2.5 rounded-xl border text-left transition-colors cursor-pointer group ${
-                          isDark
-                            ? 'bg-white/5 hover:bg-white/10 border-cyan-900/40'
-                            : 'bg-slate-50 hover:bg-teal-50/50 border-slate-200'
-                        }`}
-                      >
-                        <Activity className="w-4 h-4 text-emerald-500 group-hover:scale-110 transition-transform mb-1" />
-                        <div className={`text-[11px] sm:text-xs font-bold leading-tight ${isDark ? 'text-white' : 'text-[#002b49]'}`}>Physiotherapy</div>
-                        <div className={`text-[9px] sm:text-[10px] ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>Rehabilitation</div>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleServiceClick('Elderly geriatric home care')}
-                        className={`p-2.5 rounded-xl border text-left transition-colors cursor-pointer group ${
-                          isDark
-                            ? 'bg-white/5 hover:bg-white/10 border-cyan-900/40'
-                            : 'bg-slate-50 hover:bg-teal-50/50 border-slate-200'
-                        }`}
-                      >
-                        <User className="w-4 h-4 text-amber-500 group-hover:scale-110 transition-transform mb-1" />
-                        <div className={`text-[11px] sm:text-xs font-bold leading-tight ${isDark ? 'text-white' : 'text-[#002b49]'}`}>Elderly Care</div>
-                        <div className={`text-[9px] sm:text-[10px] ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>Daily Living</div>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleServiceClick('Home vaccination services')}
-                        className={`p-2.5 rounded-xl border text-left transition-colors cursor-pointer group ${
-                          isDark
-                            ? 'bg-white/5 hover:bg-white/10 border-cyan-900/40'
-                            : 'bg-slate-50 hover:bg-teal-50/50 border-slate-200'
-                        }`}
-                      >
-                        <ShieldCheck className="w-4 h-4 text-blue-500 group-hover:scale-110 transition-transform mb-1" />
-                        <div className={`text-[11px] sm:text-xs font-bold leading-tight ${isDark ? 'text-white' : 'text-[#002b49]'}`}>Vaccination</div>
-                        <div className={`text-[9px] sm:text-[10px] ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>Doorstep Doses</div>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleServiceClick('Medical equipment rental & sale')}
-                        className={`p-2.5 rounded-xl border text-left transition-colors cursor-pointer group ${
-                          isDark
-                            ? 'bg-white/5 hover:bg-white/10 border-cyan-900/40'
-                            : 'bg-slate-50 hover:bg-teal-50/50 border-slate-200'
-                        }`}
-                      >
-                        <Plus className="w-4 h-4 text-indigo-500 group-hover:scale-110 transition-transform mb-1" />
-                        <div className={`text-[11px] sm:text-xs font-bold leading-tight ${isDark ? 'text-white' : 'text-[#002b49]'}`}>Equipment</div>
-                        <div className={`text-[9px] sm:text-[10px] ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>Rental &amp; Sale</div>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={onOpenVitalLens}
-                        className={`p-2.5 rounded-xl border text-left transition-colors cursor-pointer group ${
-                          isDark
-                            ? 'bg-white/5 hover:bg-white/10 border-cyan-900/40'
-                            : 'bg-slate-50 hover:bg-teal-50/50 border-slate-200'
-                        }`}
-                      >
-                        <Sparkles className="w-4 h-4 text-purple-500 group-hover:scale-110 transition-transform mb-1" />
-                        <div className={`text-[11px] sm:text-xs font-bold leading-tight ${isDark ? 'text-white' : 'text-[#002b49]'}`}>Vital Lens™</div>
-                        <div className={`text-[9px] sm:text-[10px] ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>AI Camera Scan</div>
-                      </button>
-                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleSelectTab('quick-booking')}
+                      className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-[#008080] hover:bg-[#006666] text-white font-bold text-xs sm:text-sm cursor-pointer shrink-0 transition-transform active:scale-95 text-center shadow-xs"
+                    >
+                      Book Another Service
+                    </button>
                   </div>
-                </div>
-
-                {/* Right 1 Col: Vital Lens AI Preview (Strict 3:2 Aspect Ratio Frame) */}
-                <div
-                  style={{ aspectRatio: '3 / 2' }}
-                  className={`p-4 sm:p-5 rounded-2xl border shadow-xs space-y-3 flex flex-col justify-between aspect-[3/2] overflow-hidden ${
-                  isDark ? 'bg-[#00172d] border-cyan-900/40 text-white shadow-xl' : 'bg-white border-slate-200 text-slate-800'
-                }`}>
-                  <div className="space-y-2.5">
-                    <div className="flex items-center justify-between">
-                      <h3 className={`text-sm sm:text-base font-bold flex items-center gap-1.5 ${isDark ? 'text-white' : 'text-[#002b49]'}`}>
-                        <HeartPulse className="w-4 h-4 text-purple-500 animate-pulse" />
-                        <span>Vital Lens™</span>
-                      </h3>
-                      <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-700 dark:text-purple-300 border border-purple-500/30">
-                        Camera AI • 3:2
-                      </span>
-                    </div>
-
-                    <p className={`text-[11px] sm:text-xs leading-relaxed line-clamp-2 ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>
-                      Instant contactless health scanning for heart rate, oxygen &amp; stress markers via mobile camera.
-                    </p>
-
-                    <div className={`p-2.5 rounded-xl border space-y-1.5 ${
-                      isDark ? 'bg-purple-950/30 border-purple-800/30' : 'bg-purple-50/80 border-purple-200'
-                    }`}>
-                      <div className="flex justify-between text-[11px]">
-                        <span className={isDark ? 'text-slate-400' : 'text-slate-500'}>Latest Pulse:</span>
-                        <span className={`font-bold ${isDark ? 'text-purple-200' : 'text-purple-900'}`}>72 BPM (Resting)</span>
-                      </div>
-                      <div className="flex justify-between text-[11px]">
-                        <span className={isDark ? 'text-slate-400' : 'text-slate-500'}>SpO2:</span>
-                        <span className="font-bold text-teal-600 dark:text-teal-300">98% Normal</span>
-                      </div>
-                      <div className="flex justify-between text-[11px]">
-                        <span className={isDark ? 'text-slate-400' : 'text-slate-500'}>Stress Index:</span>
-                        <span className="font-bold text-emerald-600 dark:text-emerald-300">Low / Relaxed</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={onOpenVitalLens}
-                    className="w-full py-2 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold text-xs shadow-md shadow-purple-900/30 transition-all cursor-pointer flex items-center justify-center gap-1.5"
-                  >
-                    <Eye className="w-3.5 h-3.5" />
-                    <span>Launch Vitals Scan</span>
-                  </button>
-                </div>
+                )}
               </div>
 
-              {/* Nhealth AI Symptom & Doctor Finder Section (Strict 4:1 Aspect Ratio Banner / Container) */}
+              {/* Nhealth AI Symptom & Doctor Finder Section */}
               <div
-                style={{ aspectRatio: '4 / 1' }}
-                className={`p-4 sm:p-5 md:p-6 rounded-2xl border flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-4 shadow-sm aspect-[4/1] w-full overflow-hidden ${
+                className={`p-4 sm:p-5 md:p-6 rounded-2xl border flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-sm w-full ${
                 isDark
                   ? 'bg-gradient-to-r from-purple-950/60 via-indigo-950/40 to-[#001c36] border-purple-500/30 text-white'
                   : 'bg-gradient-to-r from-purple-50 via-teal-50 to-blue-50 border-purple-200 text-slate-800'
               }`}>
-                <div className="flex items-center gap-3.5 min-w-0">
+                <div className="flex items-start sm:items-center gap-3.5 min-w-0 w-full sm:w-auto">
                   <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl bg-purple-500/20 text-purple-400 flex items-center justify-center shrink-0 border border-purple-400/30 shadow-xs">
                     <Sparkles className="w-5 h-5 sm:w-6 sm:h-6 animate-pulse" />
                   </div>
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2">
-                      <h4 className={`text-sm sm:text-base font-black truncate ${isDark ? 'text-white' : 'text-[#002b49]'}`}>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h4 className={`text-sm sm:text-base font-black ${isDark ? 'text-white' : 'text-[#002b49]'}`}>
                         Nhealth AI Symptom &amp; Doctor Finder
                       </h4>
                       <span className="text-[9px] sm:text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-600 dark:text-purple-300 border border-purple-400/30 shrink-0">
-                        4:1 Ratio • AI
+                        AI Clinical Engine
                       </span>
                     </div>
-                    <p className={`text-[11px] sm:text-xs mt-0.5 max-w-xl leading-relaxed truncate sm:line-clamp-2 ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>
+                    <p className={`text-xs sm:text-sm mt-1 max-w-2xl leading-relaxed ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>
                       Describe symptoms in natural language. Our clinical engine instantly matches empaneled specialist doctors, home visits, and diagnostics.
                     </p>
                   </div>
@@ -1902,7 +1777,7 @@ export const PatientDashboardPage: React.FC<PatientDashboardPageProps> = ({
                 <button
                   type="button"
                   onClick={() => handleSelectTab('symptom-finder')}
-                  className="inline-flex items-center gap-1.5 sm:gap-2 px-4 py-2 sm:px-5 sm:py-2.5 rounded-xl bg-gradient-to-r from-purple-600 to-[#008080] hover:brightness-110 text-white text-xs font-bold shadow-md cursor-pointer shrink-0 transition-transform active:scale-95"
+                  className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-purple-600 to-[#008080] hover:brightness-110 text-white text-xs sm:text-sm font-bold shadow-md cursor-pointer shrink-0 transition-transform active:scale-95 text-center"
                 >
                   <span>Launch AI Finder</span>
                   <ArrowRight className="w-3.5 h-3.5 sm:w-4 sm:h-4" />

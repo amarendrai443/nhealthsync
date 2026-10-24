@@ -53,7 +53,10 @@ import {
   Play,
   Pause,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  Gift,
+  Tag,
+  Percent
 } from 'lucide-react';
 import {
   PartnerApplication,
@@ -100,6 +103,17 @@ import {
   resetStoredGridTabs,
   DEFAULT_GRID_TABS
 } from '../utils/gridTabsStorage';
+import {
+  PromotionItem,
+  PromotionType,
+  getStoredPromotions,
+  addStoredPromotion,
+  updateStoredPromotion,
+  deleteStoredPromotion,
+  toggleStoredPromotionActive,
+  resetStoredPromotions,
+  DEFAULT_PROMOTIONS
+} from '../utils/promotionsStorage';
 
 interface AdminDashboardPageProps {
   partners: PartnerApplication[];
@@ -427,6 +441,154 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
       resetStoredGridTabs();
       setGridTabs(getStoredGridTabs());
       showToast('✓ Grid Tabs reset to defaults.');
+    }
+  };
+
+  // 5. Promotional Offers & Referrals Management State & Handlers
+  const [promotions, setPromotions] = useState<PromotionItem[]>(getStoredPromotions);
+  const [promoFilter, setPromoFilter] = useState<'all' | 'offer' | 'referral'>('all');
+  const [isPromoModalOpen, setIsPromoModalOpen] = useState(false);
+  const [editingPromoId, setEditingPromoId] = useState<string | null>(null);
+  const [promoForm, setPromoForm] = useState<Partial<PromotionItem>>({});
+  const [promoUploadError, setPromoUploadError] = useState<string | null>(null);
+  const [promoImagePreview, setPromoImagePreview] = useState<string>('');
+  const [deletingPromo, setDeletingPromo] = useState<PromotionItem | null>(null);
+  const promoFileInputRef = React.useRef<HTMLInputElement | null>(null);
+
+  React.useEffect(() => {
+    const handlePromosSync = () => setPromotions(getStoredPromotions());
+    window.addEventListener('nhealth_promotions_updated', handlePromosSync);
+    return () => window.removeEventListener('nhealth_promotions_updated', handlePromosSync);
+  }, []);
+
+  React.useEffect(() => {
+    if (isPromoModalOpen) {
+      return navHistory.pushModal('admin-promo-modal', 'Promotion Editor', () => setIsPromoModalOpen(false));
+    }
+  }, [isPromoModalOpen]);
+
+  React.useEffect(() => {
+    if (deletingPromo) {
+      return navHistory.pushModal('admin-delete-promo-modal', 'Delete Promotion', () => setDeletingPromo(null));
+    }
+  }, [deletingPromo]);
+
+  const handlePromoFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setPromoUploadError(null);
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      setPromoUploadError('Please select a valid image file (PNG, JPG, WebP).');
+      return;
+    }
+    if (file.size > 4 * 1024 * 1024) {
+      setPromoUploadError('Image exceeds 4MB limit.');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result as string;
+      setPromoImagePreview(result);
+      setPromoForm((prev) => ({ ...prev, imageUrl: result }));
+      showToast('✓ Promotional banner image loaded.');
+    };
+    reader.onerror = () => setPromoUploadError('Failed to read image file.');
+    reader.readAsDataURL(file);
+  };
+
+  const handleOpenAddPromo = (type: PromotionType = 'offer') => {
+    setEditingPromoId(null);
+    setPromoForm({
+      type,
+      title: '',
+      description: '',
+      discount: type === 'offer' ? 'FLAT 45% OFF' : 'GIVE ₹250 • EARN ₹250',
+      code: type === 'offer' ? 'NHCARE45' : 'NH-HEALTH250',
+      badge: type === 'offer' ? 'Special Patient Offer' : 'Refer & Earn ₹250',
+      price: type === 'offer' ? '₹999' : '₹250',
+      originalPrice: type === 'offer' ? '₹1,800' : '',
+      ctaText: type === 'offer' ? 'Claim 45% Off Voucher' : 'View Care Rewards & Wallet',
+      ctaLink: type === 'offer' ? 'Comprehensive Full Body Checkup (45% OFF - ₹999)' : 'rewards',
+      imageUrl: '',
+      isActive: true,
+      order: promotions.length + 1,
+    });
+    setPromoImagePreview('');
+    setPromoUploadError(null);
+    setIsPromoModalOpen(true);
+  };
+
+  const handleOpenEditPromo = (item: PromotionItem) => {
+    setEditingPromoId(item.id);
+    setPromoForm({ ...item });
+    setPromoImagePreview(item.imageUrl || '');
+    setPromoUploadError(null);
+    setIsPromoModalOpen(true);
+  };
+
+  const handleSavePromo = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!promoForm.title?.trim()) {
+      setPromoUploadError('Please provide a title.');
+      return;
+    }
+    const promoType: PromotionType = promoForm.type || 'offer';
+    if (editingPromoId) {
+      updateStoredPromotion(editingPromoId, {
+        type: promoType,
+        title: promoForm.title.trim(),
+        description: promoForm.description?.trim() || '',
+        discount: promoForm.discount?.trim() || (promoType === 'offer' ? 'FLAT 45% OFF' : 'GIVE ₹250 • EARN ₹250'),
+        code: promoForm.code?.trim() || '',
+        badge: promoForm.badge?.trim() || (promoType === 'offer' ? 'Special Patient Offer' : 'Refer & Earn ₹250'),
+        price: promoForm.price?.trim() || undefined,
+        originalPrice: promoForm.originalPrice?.trim() || undefined,
+        ctaText: promoForm.ctaText?.trim() || 'Learn More',
+        ctaLink: promoForm.ctaLink?.trim() || 'overview',
+        imageUrl: promoForm.imageUrl || '',
+        isActive: promoForm.isActive ?? true,
+      });
+      showToast('✓ Promotional item updated successfully.');
+    } else {
+      addStoredPromotion({
+        type: promoType,
+        title: promoForm.title.trim(),
+        description: promoForm.description?.trim() || '',
+        discount: promoForm.discount?.trim() || (promoType === 'offer' ? 'FLAT 45% OFF' : 'GIVE ₹250 • EARN ₹250'),
+        code: promoForm.code?.trim() || '',
+        badge: promoForm.badge?.trim() || (promoType === 'offer' ? 'Special Patient Offer' : 'Refer & Earn ₹250'),
+        price: promoForm.price?.trim() || undefined,
+        originalPrice: promoForm.originalPrice?.trim() || undefined,
+        ctaText: promoForm.ctaText?.trim() || 'Learn More',
+        ctaLink: promoForm.ctaLink?.trim() || 'overview',
+        imageUrl: promoForm.imageUrl || '',
+        isActive: promoForm.isActive ?? true,
+      });
+      showToast('✓ New Promotional item added successfully.');
+    }
+    setPromotions(getStoredPromotions());
+    setIsPromoModalOpen(false);
+  };
+
+  const handleTogglePromoActive = (item: PromotionItem) => {
+    toggleStoredPromotionActive(item.id);
+    setPromotions(getStoredPromotions());
+    showToast(`✓ "${item.title}" is now ${!item.isActive ? 'Active (Live)' : 'Inactive (Hidden)'}.`);
+  };
+
+  const handleDeletePromoConfirm = () => {
+    if (!deletingPromo) return;
+    deleteStoredPromotion(deletingPromo.id);
+    setPromotions(getStoredPromotions());
+    showToast(`✓ Promotion "${deletingPromo.title}" deleted.`);
+    setDeletingPromo(null);
+  };
+
+  const handleResetPromotions = () => {
+    if (window.confirm('Reset all Offers & Referral cards to default configuration?')) {
+      resetStoredPromotions();
+      setPromotions(getStoredPromotions());
+      showToast('✓ Offers & Referrals reset to defaults.');
     }
   };
 
@@ -2456,6 +2618,231 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
               );
             })()}
 
+            {/* ============================================================== */}
+            {/* PROMOTIONAL OFFERS & REFERRALS MANAGEMENT SECTION */}
+            {/* ============================================================== */}
+            {(() => {
+              const filteredPromos = promotions.filter((p) => {
+                if (promoFilter === 'offer') return p.type === 'offer';
+                if (promoFilter === 'referral') return p.type === 'referral';
+                return true;
+              });
+
+              const totalOffers = promotions.filter((p) => p.type === 'offer').length;
+              const totalReferrals = promotions.filter((p) => p.type === 'referral').length;
+
+              return (
+                <div className="bg-white rounded-2xl sm:rounded-3xl border border-slate-200/90 shadow-2xs overflow-hidden space-y-5 p-5 sm:p-6 mt-6">
+                  {/* Header */}
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-4">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse" />
+                        <h3 className="text-base sm:text-lg font-black text-slate-900 tracking-tight">
+                          Promotional Cards: Offers &amp; Referrals Management
+                        </h3>
+                        <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-amber-300">
+                          Overview (4:2 Mobile Ratio)
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-500 mt-1">
+                        CRUD controls for Special Patient Offers &amp; Referral Rewards displayed on the patient dashboard.
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={handleResetPromotions}
+                        className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs transition-colors cursor-pointer"
+                      >
+                        Reset Defaults
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleOpenAddPromo('offer')}
+                        className="px-4 py-2 rounded-xl bg-gradient-to-r from-amber-600 to-rose-600 hover:from-amber-500 hover:to-rose-500 text-white font-black text-xs shadow-md shadow-amber-900/20 active:scale-95 transition-all cursor-pointer flex items-center gap-1.5"
+                      >
+                        <Plus className="w-4 h-4" />
+                        <span>+ Add New Offer / Referral</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Filter Tabs */}
+                  <div className="flex items-center gap-2 border-b border-slate-100 pb-3">
+                    <button
+                      type="button"
+                      onClick={() => setPromoFilter('all')}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                        promoFilter === 'all'
+                          ? 'bg-slate-900 text-white shadow-xs'
+                          : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                      }`}
+                    >
+                      All Promotions ({promotions.length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPromoFilter('offer')}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                        promoFilter === 'offer'
+                          ? 'bg-amber-600 text-white shadow-xs'
+                          : 'bg-amber-50 text-amber-800 hover:bg-amber-100 border border-amber-200'
+                      }`}
+                    >
+                      <Sparkles className="w-3.5 h-3.5" />
+                      <span>Special Offers ({totalOffers})</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPromoFilter('referral')}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                        promoFilter === 'referral'
+                          ? 'bg-emerald-600 text-white shadow-xs'
+                          : 'bg-emerald-50 text-emerald-800 hover:bg-emerald-100 border border-emerald-200'
+                      }`}
+                    >
+                      <Gift className="w-3.5 h-3.5" />
+                      <span>Care Referrals ({totalReferrals})</span>
+                    </button>
+                  </div>
+
+                  {/* Promotions Table */}
+                  {filteredPromos.length === 0 ? (
+                    <div className="p-10 text-center bg-slate-50 rounded-2xl border border-dashed border-slate-300">
+                      <Sparkles className="w-10 h-10 text-slate-300 mx-auto mb-2" />
+                      <p className="text-xs font-bold text-slate-600">No promotions found for this filter.</p>
+                      <button
+                        type="button"
+                        onClick={() => handleOpenAddPromo('offer')}
+                        className="mt-3 px-3.5 py-1.5 rounded-xl bg-amber-600 text-white text-xs font-bold"
+                      >
+                        + Create Promotion Card
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left border-collapse text-xs">
+                        <thead>
+                          <tr className="bg-slate-50/90 text-slate-500 font-bold border-b border-slate-200 text-[11px] uppercase tracking-wider">
+                            <th className="py-3 px-3.5 w-14 text-center">Type</th>
+                            <th className="py-3 px-3.5 w-24">Card Banner</th>
+                            <th className="py-3 px-3.5">Title &amp; Details</th>
+                            <th className="py-3 px-3.5">Discount &amp; Code</th>
+                            <th className="py-3 px-3.5">Pricing</th>
+                            <th className="py-3 px-3.5 text-center">Status</th>
+                            <th className="py-3 px-3.5 text-right">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {filteredPromos.map((item) => (
+                            <tr key={item.id} className="hover:bg-slate-50/70 transition-colors">
+                              <td className="py-3 px-3.5 text-center">
+                                <span className={`inline-block text-[9px] font-black uppercase px-2 py-0.5 rounded-full border ${
+                                  item.type === 'offer'
+                                    ? 'bg-amber-100 text-amber-800 border-amber-300'
+                                    : 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                                }`}>
+                                  {item.type === 'offer' ? 'Offer' : 'Referral'}
+                                </span>
+                              </td>
+                              <td className="py-3 px-3.5">
+                                <div className="w-20 h-11 rounded-lg border border-slate-200 overflow-hidden bg-slate-900 relative shadow-2xs">
+                                  {item.imageUrl ? (
+                                    <img src={item.imageUrl} alt={item.title} className="w-full h-full object-cover" />
+                                  ) : (
+                                    <div className="w-full h-full flex items-center justify-center text-slate-400">
+                                      {item.type === 'offer' ? <Sparkles className="w-4 h-4 text-amber-400" /> : <Gift className="w-4 h-4 text-emerald-400" />}
+                                    </div>
+                                  )}
+                                  <span className="absolute bottom-0 right-0 text-[6.5px] font-mono font-bold px-1 rounded-tl bg-black/70 text-white">
+                                    4:2
+                                  </span>
+                                </div>
+                              </td>
+                              <td className="py-3 px-3.5 max-w-xs">
+                                <div className="font-bold text-slate-800 text-xs sm:text-sm line-clamp-1">
+                                  {item.title}
+                                </div>
+                                <div className="text-[11px] text-slate-500 line-clamp-1 mt-0.5">
+                                  {item.description}
+                                </div>
+                                {item.badge && (
+                                  <span className="inline-block mt-1 text-[8.5px] font-black uppercase px-1.5 py-0.2 rounded bg-slate-100 text-slate-700 border border-slate-200">
+                                    {item.badge}
+                                  </span>
+                                )}
+                              </td>
+                              <td className="py-3 px-3.5">
+                                <div className="font-bold text-slate-800 text-xs">
+                                  {item.discount}
+                                </div>
+                                {item.code && (
+                                  <span className="inline-block font-mono text-[10px] bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200 text-slate-700 mt-0.5 font-bold">
+                                    {item.code}
+                                  </span>
+                                )}
+                              </td>
+                              <td className="py-3 px-3.5">
+                                {item.price ? (
+                                  <div className="text-xs font-black text-slate-900">
+                                    {item.price}{' '}
+                                    {item.originalPrice && (
+                                      <span className="text-[10px] line-through font-normal text-slate-400">
+                                        {item.originalPrice}
+                                      </span>
+                                    )}
+                                  </div>
+                                ) : (
+                                  <span className="text-[11px] text-slate-400">—</span>
+                                )}
+                              </td>
+                              <td className="py-3 px-3.5 text-center">
+                                <button
+                                  type="button"
+                                  onClick={() => handleTogglePromoActive(item)}
+                                  className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10.5px] font-bold border transition-colors cursor-pointer ${
+                                    item.isActive
+                                      ? 'bg-emerald-50 text-emerald-700 border-emerald-300'
+                                      : 'bg-slate-100 text-slate-500 border-slate-300'
+                                  }`}
+                                >
+                                  <span className={`w-1.5 h-1.5 rounded-full ${item.isActive ? 'bg-emerald-500' : 'bg-slate-400'}`} />
+                                  <span>{item.isActive ? 'Active' : 'Inactive'}</span>
+                                </button>
+                              </td>
+                              <td className="py-3 px-3.5 text-right">
+                                <div className="flex items-center justify-end gap-1.5">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleOpenEditPromo(item)}
+                                    className="px-2.5 py-1.5 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-800 font-bold text-xs flex items-center gap-1 transition-colors cursor-pointer"
+                                    title="Edit Promotion"
+                                  >
+                                    <Edit className="w-3.5 h-3.5" />
+                                    <span>Edit</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setDeletingPromo(item)}
+                                    className="p-1.5 rounded-lg bg-red-50 hover:bg-red-100 text-red-600 transition-colors cursor-pointer"
+                                    title="Delete Promotion"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
             {/* ADD / EDIT BANNER MODAL */}
             {isBannerModalOpen && (
               <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto animate-fade-in">
@@ -3051,6 +3438,309 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
                       className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-bold cursor-pointer transition-colors"
                     >
                       Yes, Delete Tab
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ADD / EDIT PROMOTION MODAL */}
+            {isPromoModalOpen && (
+              <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto animate-fade-in">
+                <div className="bg-white rounded-3xl max-w-lg w-full p-5 sm:p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto border border-slate-200">
+                  {/* Modal Header */}
+                  <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                    <div className="flex items-center gap-2">
+                      <div className={`w-8 h-8 rounded-xl flex items-center justify-center ${
+                        promoForm.type === 'referral' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'
+                      }`}>
+                        {promoForm.type === 'referral' ? <Gift className="w-4 h-4" /> : <Sparkles className="w-4 h-4" />}
+                      </div>
+                      <h4 className="text-base font-black text-slate-800">
+                        {editingPromoId ? 'Edit Promotional Card' : 'Add New Offer / Referral Card'}
+                      </h4>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setIsPromoModalOpen(false)}
+                      className="text-slate-400 hover:text-slate-600 p-1 rounded-full hover:bg-slate-100 transition-colors cursor-pointer"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  {promoUploadError && (
+                    <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-xs text-red-700 flex items-center gap-2">
+                      <AlertCircle className="w-4 h-4 text-red-500 shrink-0" />
+                      <span>{promoUploadError}</span>
+                    </div>
+                  )}
+
+                  <form onSubmit={handleSavePromo} className="space-y-3.5 text-left">
+                    {/* Promotion Type Selector */}
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-bold text-slate-700">Promotion Type *</label>
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setPromoForm((prev) => ({
+                            ...prev,
+                            type: 'offer',
+                            badge: prev.badge || 'Special Patient Offer',
+                            discount: prev.discount || 'FLAT 45% OFF',
+                            ctaText: prev.ctaText || 'Claim 45% Off Voucher',
+                          }))}
+                          className={`p-2.5 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
+                            (promoForm.type || 'offer') === 'offer'
+                              ? 'bg-amber-600 text-white border-amber-600 shadow-xs'
+                              : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                          }`}
+                        >
+                          Special Patient Offer
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setPromoForm((prev) => ({
+                            ...prev,
+                            type: 'referral',
+                            badge: prev.badge || 'Refer & Earn ₹250',
+                            discount: prev.discount || 'GIVE ₹250 • EARN ₹250',
+                            ctaText: prev.ctaText || 'View Care Rewards & Wallet',
+                            code: prev.code || 'NH-HEALTH250',
+                          }))}
+                          className={`p-2.5 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
+                            promoForm.type === 'referral'
+                              ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
+                              : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                          }`}
+                        >
+                          Care Referral Card
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Title */}
+                    <div className="space-y-1">
+                      <label className="text-xs font-bold text-slate-700">Card Title *</label>
+                      <input
+                        type="text"
+                        required
+                        value={promoForm.title || ''}
+                        onChange={(e) => setPromoForm((prev) => ({ ...prev, title: e.target.value }))}
+                        placeholder={promoForm.type === 'referral' ? 'e.g. Give ₹250, Get ₹250 Care Credits' : 'e.g. Comprehensive Full Body Checkup Package'}
+                        className="w-full text-xs font-semibold px-3 py-2 rounded-xl border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-amber-500 text-slate-800"
+                      />
+                    </div>
+
+                    {/* Description */}
+                    <div className="space-y-1">
+                      <label className="text-xs font-bold text-slate-700">Description</label>
+                      <textarea
+                        rows={2}
+                        value={promoForm.description || ''}
+                        onChange={(e) => setPromoForm((prev) => ({ ...prev, description: e.target.value }))}
+                        placeholder="Brief summary of the offer or referral rewards..."
+                        className="w-full text-xs font-medium px-3 py-2 rounded-xl border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-amber-500 text-slate-800 resize-none"
+                      />
+                    </div>
+
+                    {/* Discount & Code Row */}
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="space-y-1">
+                        <label className="text-xs font-bold text-slate-700">Discount Tag</label>
+                        <input
+                          type="text"
+                          value={promoForm.discount || ''}
+                          onChange={(e) => setPromoForm((prev) => ({ ...prev, discount: e.target.value }))}
+                          placeholder="e.g. FLAT 45% OFF"
+                          className="w-full text-xs font-semibold px-3 py-2 rounded-xl border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-amber-500 text-slate-800"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-xs font-bold text-slate-700">Promo / Referral Code</label>
+                        <input
+                          type="text"
+                          value={promoForm.code || ''}
+                          onChange={(e) => setPromoForm((prev) => ({ ...prev, code: e.target.value.toUpperCase() }))}
+                          placeholder="e.g. NHCARE45"
+                          className="w-full text-xs font-mono font-bold px-3 py-2 rounded-xl border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-amber-500 text-slate-800 uppercase"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Callout Badge & CTA Row */}
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="space-y-1">
+                        <label className="text-xs font-bold text-slate-700">Header Badge Text</label>
+                        <input
+                          type="text"
+                          value={promoForm.badge || ''}
+                          onChange={(e) => setPromoForm((prev) => ({ ...prev, badge: e.target.value }))}
+                          placeholder="e.g. Special Patient Offer"
+                          className="w-full text-xs font-semibold px-3 py-2 rounded-xl border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-amber-500 text-slate-800"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-xs font-bold text-slate-700">CTA Button Text</label>
+                        <input
+                          type="text"
+                          value={promoForm.ctaText || ''}
+                          onChange={(e) => setPromoForm((prev) => ({ ...prev, ctaText: e.target.value }))}
+                          placeholder="e.g. Claim 45% Off Voucher"
+                          className="w-full text-xs font-semibold px-3 py-2 rounded-xl border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-amber-500 text-slate-800"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Pricing Row (Optional for offers) */}
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="space-y-1">
+                        <label className="text-xs font-bold text-slate-700">Offer Price</label>
+                        <input
+                          type="text"
+                          value={promoForm.price || ''}
+                          onChange={(e) => setPromoForm((prev) => ({ ...prev, price: e.target.value }))}
+                          placeholder="e.g. ₹999 or ₹250"
+                          className="w-full text-xs font-semibold px-3 py-2 rounded-xl border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-amber-500 text-slate-800"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-xs font-bold text-slate-700">Original Price</label>
+                        <input
+                          type="text"
+                          value={promoForm.originalPrice || ''}
+                          onChange={(e) => setPromoForm((prev) => ({ ...prev, originalPrice: e.target.value }))}
+                          placeholder="e.g. ₹1,800"
+                          className="w-full text-xs font-semibold px-3 py-2 rounded-xl border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-amber-500 text-slate-800"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Target Link */}
+                    <div className="space-y-1">
+                      <label className="text-xs font-bold text-slate-700">Target Route / Destination</label>
+                      <input
+                        type="text"
+                        value={promoForm.ctaLink || ''}
+                        onChange={(e) => setPromoForm((prev) => ({ ...prev, ctaLink: e.target.value }))}
+                        placeholder="e.g. quick-booking or rewards"
+                        className="w-full text-xs font-semibold px-3 py-2 rounded-xl border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-amber-500 text-slate-800"
+                      />
+                    </div>
+
+                    {/* Card Banner Image Uploader */}
+                    <div className="space-y-1.5 border border-slate-200 rounded-xl p-3 bg-slate-50/50">
+                      <label className="text-xs font-bold text-slate-700 block">
+                        Promotional Card Image (Optional • 4:2 Ratio Frame)
+                      </label>
+                      <div className="flex items-center gap-3">
+                        <div className="w-16 h-10 rounded-lg border border-slate-200 overflow-hidden bg-slate-900 shrink-0 relative">
+                          {promoImagePreview || promoForm.imageUrl ? (
+                            <img
+                              src={promoImagePreview || promoForm.imageUrl}
+                              alt="Card banner preview"
+                              className="w-full h-full object-cover"
+                            />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center text-slate-400">
+                              <ImageIcon className="w-4 h-4" />
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="flex-1 space-y-1">
+                          <input
+                            ref={promoFileInputRef}
+                            type="file"
+                            accept="image/*"
+                            onChange={handlePromoFileUpload}
+                            className="hidden"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => promoFileInputRef.current?.click()}
+                            className="px-3 py-1.5 rounded-lg bg-white border border-slate-300 hover:bg-slate-100 text-slate-700 text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+                          >
+                            <Upload className="w-3.5 h-3.5" />
+                            <span>Upload Image</span>
+                          </button>
+                        </div>
+                      </div>
+
+                      <input
+                        type="url"
+                        value={promoForm.imageUrl || ''}
+                        onChange={(e) => {
+                          setPromoForm((prev) => ({ ...prev, imageUrl: e.target.value }));
+                          setPromoImagePreview(e.target.value);
+                        }}
+                        placeholder="Or enter image URL (https://...)"
+                        className="w-full text-xs px-2.5 py-1.5 rounded-lg border border-slate-300 bg-white text-slate-700 focus:outline-none"
+                      />
+                    </div>
+
+                    {/* Active Status */}
+                    <div className="flex items-center gap-2 pt-1">
+                      <input
+                        type="checkbox"
+                        id="promoIsActive"
+                        checked={promoForm.isActive ?? true}
+                        onChange={(e) => setPromoForm((prev) => ({ ...prev, isActive: e.target.checked }))}
+                        className="w-4 h-4 rounded text-amber-600 focus:ring-amber-500 cursor-pointer"
+                      />
+                      <label htmlFor="promoIsActive" className="text-xs font-bold text-slate-700 cursor-pointer">
+                        Set Active (Visible on Overview Dashboard)
+                      </label>
+                    </div>
+
+                    {/* Modal Actions */}
+                    <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+                      <button
+                        type="button"
+                        onClick={() => setIsPromoModalOpen(false)}
+                        className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold cursor-pointer transition-colors"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="submit"
+                        className="px-4 py-2 rounded-xl bg-gradient-to-r from-amber-600 to-rose-600 hover:from-amber-500 hover:to-rose-500 text-white text-xs font-bold cursor-pointer shadow-md transition-all active:scale-95"
+                      >
+                        {editingPromoId ? 'Save Changes' : 'Create Promotion'}
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            )}
+
+            {/* DELETE PROMOTION CONFIRMATION MODAL */}
+            {deletingPromo && (
+              <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-fade-in">
+                <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl space-y-4 border border-slate-200 text-center">
+                  <div className="w-12 h-12 rounded-full bg-red-100 text-red-600 mx-auto flex items-center justify-center">
+                    <Trash2 className="w-6 h-6" />
+                  </div>
+                  <div className="space-y-1">
+                    <h4 className="text-base font-black text-slate-800">Delete Promotion Card?</h4>
+                    <p className="text-xs text-slate-500">
+                      Are you sure you want to delete <strong>"{deletingPromo.title}"</strong>? This will permanently remove it from the patient dashboard.
+                    </p>
+                  </div>
+                  <div className="flex items-center justify-center gap-2 pt-2">
+                    <button
+                      type="button"
+                      onClick={() => setDeletingPromo(null)}
+                      className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold cursor-pointer transition-colors"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleDeletePromoConfirm}
+                      className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-bold cursor-pointer transition-colors"
+                    >
+                      Yes, Delete Promotion
                     </button>
                   </div>
                 </div>
